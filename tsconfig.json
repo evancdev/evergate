@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    /* Base */
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "preserve",
+    "types": ["node"],
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+
+    /* tsx runs the code — tsc only type-checks */
+    "noEmit": true
+  },
+  "include": ["src"]
+}

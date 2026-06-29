@@ -1,0 +1,28 @@
+{
+  "name": "mimir",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.14.0",
+  "description": "Shared knowledge graph for AI agents, over MCP.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "docker:up": "docker compose --env-file .env -f docker/compose.yml up -d --build",
+    "docker:down": "docker compose --env-file .env -f docker/compose.yml down",
+    "docker:logs": "docker compose --env-file .env -f docker/compose.yml logs -f"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1",
+    "neo4j-driver": "^6.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.0.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
