@@ -1,6 +1,7 @@
+import { type Server } from "node:http";
 import express from "express";
 import { mcpRouter } from "./mcp.js";
-import { closeDriver } from "./graph.js";
+import { closeDriver, ensureSchema } from "./graph.js";
 import { logger } from "./logger.js";
 import { env } from "./env.js";
 
@@ -15,13 +16,9 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-const server = app.listen(env.port, "::", () => {
-  logger.info(`Listening on port ${env.port}`);
-});
-
 let isShuttingDown = false;
 
-async function gracefulShutdown(signal: string) {
+async function gracefulShutdown(signal: string, server: Server) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
@@ -52,5 +49,21 @@ async function gracefulShutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+async function start() {
+  try {
+    await ensureSchema();
+    logger.info("Schema ready");
+  } catch (err) {
+    logger.error("Failed to ensure schema", err as Error);
+    process.exit(1);
+  }
+
+  const server = app.listen(env.port, "::", () => {
+    logger.info(`Listening on port ${env.port}`);
+  });
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
+}
+
+void start();
