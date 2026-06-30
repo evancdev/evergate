@@ -10,6 +10,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "docker:up": "docker compose --env-file .env -f docker/compose.yml up -d --build",
     "docker:down": "docker compose --env-file .env -f docker/compose.yml down",
     "docker:logs": "docker compose --env-file .env -f docker/compose.yml logs -f"
@@ -24,6 +26,7 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.0.1",
+    "prettier": "^3.9.4",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

@@ -43,7 +43,9 @@ export async function ensureSchema(): Promise<void> {
 }
 
 /** Create or update an entity by name; fields omitted are left unchanged. */
-export async function upsertEntity(input: z.infer<typeof upsertSchema>): Promise<void> {
+export async function upsertEntity(
+  input: z.infer<typeof upsertSchema>,
+): Promise<void> {
   await query(
     `MERGE (e:Entity {name: $name})
      SET e.updated_at = $now,

@@ -35,7 +35,9 @@ async function gracefulShutdown(signal: string, server: Server) {
     // Stop accepting connections and wait for in-flight requests to drain.
     await new Promise<void>((resolve, reject) =>
       server.close((err) =>
-        err && err.message !== "Server is not running." ? reject(err) : resolve(),
+        err && err.message !== "Server is not running."
+          ? reject(err)
+          : resolve(),
       ),
     );
     // HTTP is drained — release the Neo4j connection pool.

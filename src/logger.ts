@@ -16,7 +16,8 @@ export const logger = {
     console.error(message, error ? formatError(error) : "", data ?? "");
   },
   debug(message: string, data?: LogData): void {
-    if (process.env.NODE_ENV !== "production") console.info(message, data ?? "");
+    if (process.env.NODE_ENV !== "production")
+      console.info(message, data ?? "");
   },
   captureException(
     error: unknown,

@@ -17,23 +17,49 @@ const PERIODIC_COMMIT_MSG =
 
 describe("needsImplicitTx", () => {
   it("matches CALL IN TRANSACTIONS (TransactionStartFailed)", () => {
-    expect(needsImplicitTx(err("Neo.DatabaseError.Transaction.TransactionStartFailed", CALL_IN_TX_MSG))).toBe(true);
+    expect(
+      needsImplicitTx(
+        err(
+          "Neo.DatabaseError.Transaction.TransactionStartFailed",
+          CALL_IN_TX_MSG,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("matches CALL IN TRANSACTIONS (ExecutionFailed)", () => {
-    expect(needsImplicitTx(err("Neo.DatabaseError.Statement.ExecutionFailed", CALL_IN_TX_MSG))).toBe(true);
+    expect(
+      needsImplicitTx(
+        err("Neo.DatabaseError.Statement.ExecutionFailed", CALL_IN_TX_MSG),
+      ),
+    ).toBe(true);
   });
 
   it("matches CALL IN TRANSACTIONS (SemanticError)", () => {
-    expect(needsImplicitTx(err("Neo.ClientError.Statement.SemanticError", CALL_IN_TX_MSG))).toBe(true);
+    expect(
+      needsImplicitTx(
+        err("Neo.ClientError.Statement.SemanticError", CALL_IN_TX_MSG),
+      ),
+    ).toBe(true);
   });
 
   it("matches periodic commit in an open transaction (SemanticError)", () => {
-    expect(needsImplicitTx(err("Neo.ClientError.Statement.SemanticError", PERIODIC_COMMIT_MSG))).toBe(true);
+    expect(
+      needsImplicitTx(
+        err("Neo.ClientError.Statement.SemanticError", PERIODIC_COMMIT_MSG),
+      ),
+    ).toBe(true);
   });
 
   it("ignores unrelated Neo4j errors", () => {
-    expect(needsImplicitTx(err("Neo.ClientError.Statement.SyntaxError", "Invalid input near WHERE"))).toBe(false);
+    expect(
+      needsImplicitTx(
+        err(
+          "Neo.ClientError.Statement.SyntaxError",
+          "Invalid input near WHERE",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("ignores the deceptive 'after a write clause' SemanticError (same code + IN TRANSACTIONS tokens)", () => {
@@ -68,17 +94,28 @@ describe("needsImplicitTx", () => {
   });
 
   it("requires both code and message (real message, non-matching code)", () => {
-    expect(needsImplicitTx(err("Neo.ClientError.Security.Forbidden", CALL_IN_TX_MSG))).toBe(false);
+    expect(
+      needsImplicitTx(
+        err("Neo.ClientError.Security.Forbidden", CALL_IN_TX_MSG),
+      ),
+    ).toBe(false);
   });
 
   it("requires a message (matching code, empty message)", () => {
-    expect(needsImplicitTx(err("Neo.DatabaseError.Transaction.TransactionStartFailed", ""))).toBe(false);
+    expect(
+      needsImplicitTx(
+        err("Neo.DatabaseError.Transaction.TransactionStartFailed", ""),
+      ),
+    ).toBe(false);
   });
 
   it("returns false for non-Neo4jError values", () => {
     expect(needsImplicitTx(new Error(CALL_IN_TX_MSG))).toBe(false);
     expect(
-      needsImplicitTx({ code: "Neo.DatabaseError.Statement.ExecutionFailed", message: CALL_IN_TX_MSG }),
+      needsImplicitTx({
+        code: "Neo.DatabaseError.Statement.ExecutionFailed",
+        message: CALL_IN_TX_MSG,
+      }),
     ).toBe(false);
     expect(needsImplicitTx(null)).toBe(false);
     expect(needsImplicitTx(undefined)).toBe(false);
