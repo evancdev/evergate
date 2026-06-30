@@ -1,5 +1,6 @@
 import express from "express";
 import { mcpRouter } from "./mcp.js";
+import { closeDriver } from "./graph.js";
 import { logger } from "./logger.js";
 import { env } from "./env.js";
 
@@ -20,7 +21,7 @@ const server = app.listen(env.port, "::", () => {
 
 let isShuttingDown = false;
 
-function gracefulShutdown(signal: string) {
+async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
@@ -33,15 +34,22 @@ function gracefulShutdown(signal: string) {
     process.exit(1);
   }, TERMINATION_GRACE_PERIOD_MS).unref();
 
-  server.close((error) => {
-    if (error && error.message !== "Server is not running.") {
-      logger.error("Error while closing HTTP server", error);
-    }
+  try {
+    // Stop accepting connections and wait for in-flight requests to drain.
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) =>
+        err && err.message !== "Server is not running." ? reject(err) : resolve(),
+      ),
+    );
+    // HTTP is drained — release the Neo4j connection pool.
+    await closeDriver();
+  } catch (err) {
+    logger.error("Error during shutdown", err as Error);
+  }
 
-    clearTimeout(forceExitTimer);
-    logger.info("Graceful shutdown complete");
-    process.exit(0);
-  });
+  clearTimeout(forceExitTimer);
+  logger.info("Graceful shutdown complete");
+  process.exit(0);
 }
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
