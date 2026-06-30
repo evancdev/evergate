@@ -2,10 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { env } from "./env.js";
+import { registerTools } from "./tools.js";
 
 /** Handle one request: a fresh server + transport per call */
 const handlePost = async (req: Request, res: Response) => {
   const server = new McpServer({ name: "mimir", version: "0.0.0" });
+  registerTools(server);
   const transport = new StreamableHTTPServerTransport({
     // Stateless. Set a generator only if the server has to push to the client
     sessionIdGenerator: undefined,

@@ -1,6 +1,8 @@
+import { z } from "zod";
 import neo4j, { type Driver } from "neo4j-driver";
 import { env } from "./env.js";
 import { needsImplicitTx } from "./errors.js";
+import { upsertSchema } from "./schema.js";
 
 const driver: Driver = neo4j.driver(
   env.neo4j.uri,
@@ -26,7 +28,8 @@ async function query(
       const result = await session.run(cypher, params);
       return result.records.map((r) => r.toObject());
     } finally {
-      await session.close();
+      // Best-effort cleanup: never let a close failure clobber the real result/error.
+      await session.close().catch(() => {});
     }
   }
 }
@@ -36,5 +39,21 @@ export async function ensureSchema(): Promise<void> {
   await query(
     `CREATE CONSTRAINT entity_name IF NOT EXISTS
      FOR (e:Entity) REQUIRE e.name IS UNIQUE`,
+  );
+}
+
+/** Create or update an entity by name; fields omitted are left unchanged. */
+export async function upsertEntity(input: z.infer<typeof upsertSchema>): Promise<void> {
+  await query(
+    `MERGE (e:Entity {name: $name})
+     SET e.updated_at = $now,
+         e.type = coalesce($type, e.type),
+         e.summary = coalesce($summary, e.summary)`,
+    {
+      name: input.name,
+      type: input.type ?? null,
+      summary: input.summary ?? null,
+      now: new Date().toISOString(),
+    },
   );
 }
