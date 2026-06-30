@@ -19,5 +19,5 @@
     /* tsx runs the code — tsc only type-checks */
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }
