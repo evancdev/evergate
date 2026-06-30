@@ -1,18 +1,21 @@
 import express from "express";
+import { mcpRouter } from "./mcp.js";
 import { logger } from "./logger.js";
+import { env } from "./env.js";
 
 const TERMINATION_GRACE_PERIOD_MS = 10_000;
-const PORT = Number(process.env.PORT) || 8765;
 
 const app = express();
 app.use(express.json());
+
+app.use("/mcp", mcpRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-const server = app.listen(PORT, "::", () => {
-  logger.info(`Listening on port ${PORT}`);
+const server = app.listen(env.port, "::", () => {
+  logger.info(`Listening on port ${env.port}`);
 });
 
 let isShuttingDown = false;
