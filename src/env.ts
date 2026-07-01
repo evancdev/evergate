@@ -8,6 +8,7 @@ if (!neo4jPassword) throw new Error("Missing NEO4J_PASSWORD");
 /** Central config: reads process.env, with optional fallbacks. */
 export const env = {
   port,
+  host: process.env.MCP_BIND_HOST ?? "::",
   allowedHosts: (
     process.env.MCP_ALLOWED_HOSTS ?? `127.0.0.1:${port},localhost:${port}`
   ).split(","),

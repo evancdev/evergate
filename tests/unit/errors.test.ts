@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import neo4j from "neo4j-driver";
-import { needsImplicitTx } from "../src/errors.js";
+import { needsImplicitTx } from "../../src/errors.js";
 
 // All messages + codes are real Neo4j errors (CALL-IN-TX / PERIODIC-COMMIT verified on a live
 // 5.26.27; the other codes occur on other versions/editions). Casing is fixed, so matching is case-sensitive.
 
 // v6's Neo4jError constructor types `code` narrowly and requires gql fields — hence the cast + "".
 const err = (code: string, message: string) =>
-  new neo4j.Neo4jError(message, code as never, "", "");
+  new neo4j.Neo4jError(message, code, "", "");
 
 const CALL_IN_TX_MSG =
   "A query with 'CALL { ... } IN TRANSACTIONS' can only be executed in an implicit transaction, but tried to execute in an explicit transaction.";
