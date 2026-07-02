@@ -8,6 +8,8 @@ let harness: TestingHarness;
 let test: Neo4jTestService;
 let prod: Neo4jService;
 
+const NOW = new Date("2026-01-08T00:00:00.000Z").getTime();
+
 beforeAll(async () => {
   harness = await TestingHarness.create();
   test = harness.neo4j;
@@ -41,8 +43,16 @@ describe("upsertEntity", () => {
   it("is idempotent: the same name never creates a second node", async () => {
     await prod.upsertEntity({ name: "Neo4j", type: "database" });
     await prod.upsertEntity({ name: "Neo4j", type: "database" });
-    const rows = await prod.searchEntities({ query: "Neo4j", limit: 100 });
-    expect(rows).toHaveLength(1);
+    // No clock passed: the just-written row is seconds old, so "just now".
+    expect(await prod.searchEntities({ query: "Neo4j", limit: 100 })).toBe(
+      `[
+  {
+    "name": "Neo4j",
+    "type": "database",
+    "updated": "just now"
+  }
+]`,
+    );
   });
 
   it("leaves omitted fields unchanged (coalesce keeps existing values)", async () => {
@@ -91,16 +101,38 @@ describe("upsertEntity", () => {
 
 describe("searchEntities", () => {
   it("matches on name, case-insensitively", async () => {
-    await test.seed({ name: "Neo4j", type: "database" });
-    const rows = await prod.searchEntities({ query: "NEO", limit: 100 });
-    expect(rows.map((r) => r.name)).toContain("Neo4j");
+    await test.seed({
+      name: "Neo4j",
+      type: "database",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    expect(await prod.searchEntities({ query: "NEO", limit: 100 }, NOW)).toBe(
+      `[
+  {
+    "name": "Neo4j",
+    "type": "database",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("matches on type", async () => {
-    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({
+      name: "Neo4j",
+      type: "database",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
     await test.seed({ name: "Cypher", type: "language" });
-    const rows = await prod.searchEntities({ query: "data", limit: 100 });
-    expect(rows.map((r) => r.name)).toEqual(["Neo4j"]);
+    expect(await prod.searchEntities({ query: "data", limit: 100 }, NOW)).toBe(
+      `[
+  {
+    "name": "Neo4j",
+    "type": "database",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("does not match on summary", async () => {
@@ -109,76 +141,125 @@ describe("searchEntities", () => {
       type: "thing",
       summary: "mentions a unicorn",
     });
-    const rows = await prod.searchEntities({ query: "unicorn", limit: 100 });
-    expect(rows).toHaveLength(0);
+    expect(
+      await prod.searchEntities({ query: "unicorn", limit: 100 }, NOW),
+    ).toBe("[]");
   });
 
   it("lists all entities when no query is given", async () => {
-    await test.seed({ name: "One" });
-    await test.seed({ name: "Two" });
-    await test.seed({ name: "Three" });
-    const rows = await prod.searchEntities({ limit: 100 });
-    expect(rows).toHaveLength(3);
+    await test.seed({ name: "One", updated_at: "2026-01-03T00:00:00.000Z" });
+    await test.seed({ name: "Two", updated_at: "2026-01-02T00:00:00.000Z" });
+    await test.seed({ name: "Three", updated_at: "2026-01-01T00:00:00.000Z" });
+    expect(await prod.searchEntities({ limit: 100 }, NOW)).toBe(
+      `[
+  {
+    "name": "One",
+    "updated": "5 days ago"
+  },
+  {
+    "name": "Two",
+    "updated": "6 days ago"
+  },
+  {
+    "name": "Three",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("caps results at the limit", async () => {
-    await test.seed({ name: "One" });
-    await test.seed({ name: "Two" });
-    await test.seed({ name: "Three" });
+    await test.seed({ name: "One", updated_at: "2026-01-03T00:00:00.000Z" });
+    await test.seed({ name: "Two", updated_at: "2026-01-02T00:00:00.000Z" });
+    await test.seed({ name: "Three", updated_at: "2026-01-01T00:00:00.000Z" });
     // A plain number would pack as a float and Neo4j would reject it for LIMIT.
-    const rows = await prod.searchEntities({ limit: 2 });
-    expect(rows).toHaveLength(2);
+    expect(await prod.searchEntities({ limit: 2 }, NOW)).toBe(
+      `[
+  {
+    "name": "One",
+    "updated": "5 days ago"
+  },
+  {
+    "name": "Two",
+    "updated": "6 days ago"
+  }
+]`,
+    );
   });
 
   it("orders most-recently-updated first", async () => {
-    await test.seed({
-      name: "Beta",
-      updated_at: "2026-01-01T00:00:00.000Z",
-    });
-    await test.seed({
-      name: "Alpha",
-      updated_at: "2026-01-02T00:00:00.000Z",
-    });
-    const rows = await prod.searchEntities({ limit: 100 });
-    expect(rows.map((r) => r.name)).toEqual(["Alpha", "Beta"]);
+    await test.seed({ name: "Beta", updated_at: "2026-01-01T00:00:00.000Z" });
+    await test.seed({ name: "Alpha", updated_at: "2026-01-02T00:00:00.000Z" });
+    expect(await prod.searchEntities({ limit: 100 }, NOW)).toBe(
+      `[
+  {
+    "name": "Alpha",
+    "updated": "6 days ago"
+  },
+  {
+    "name": "Beta",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("returns the most-recently-updated entities up to the limit, in order", async () => {
     // Timestamps ascend while names are out of alphabetical order, so a broken
     // ORDER BY or an arbitrary LIMIT can't pass by coincidence.
-    await test.seed({
-      name: "First",
-      updated_at: "2026-01-01T00:00:00.000Z",
-    });
-    await test.seed({
-      name: "Second",
-      updated_at: "2026-01-02T00:00:00.000Z",
-    });
-    await test.seed({
-      name: "Third",
-      updated_at: "2026-01-03T00:00:00.000Z",
-    });
-    const rows = await prod.searchEntities({ limit: 2 });
-    expect(rows.map((r) => r.name)).toEqual(["Third", "Second"]);
+    await test.seed({ name: "First", updated_at: "2026-01-01T00:00:00.000Z" });
+    await test.seed({ name: "Second", updated_at: "2026-01-02T00:00:00.000Z" });
+    await test.seed({ name: "Third", updated_at: "2026-01-03T00:00:00.000Z" });
+    expect(await prod.searchEntities({ limit: 2 }, NOW)).toBe(
+      `[
+  {
+    "name": "Third",
+    "updated": "5 days ago"
+  },
+  {
+    "name": "Second",
+    "updated": "6 days ago"
+  }
+]`,
+    );
   });
 
   it("returns nothing when the graph is empty", async () => {
-    expect(await prod.searchEntities({ limit: 100 })).toEqual([]);
+    expect(await prod.searchEntities({ limit: 100 }, NOW)).toBe("[]");
     expect(
-      await prod.searchEntities({ query: "anything", limit: 100 }),
-    ).toEqual([]);
+      await prod.searchEntities({ query: "anything", limit: 100 }, NOW),
+    ).toBe("[]");
   });
 
   it("matches a type-less entity on its name (coalesce guards the null type)", async () => {
-    await test.seed({ name: "Solo" });
-    const rows = await prod.searchEntities({ query: "Solo", limit: 100 });
-    expect(rows.map((r) => r.name)).toEqual(["Solo"]);
+    await test.seed({ name: "Solo", updated_at: "2026-01-01T00:00:00.000Z" });
+    expect(await prod.searchEntities({ query: "Solo", limit: 100 }, NOW)).toBe(
+      `[
+  {
+    "name": "Solo",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("matches on type case-insensitively on the stored side too", async () => {
-    await test.seed({ name: "PG", type: "Database" });
-    const rows = await prod.searchEntities({ query: "database", limit: 100 });
-    expect(rows.map((r) => r.name)).toContain("PG");
+    await test.seed({
+      name: "PG",
+      type: "Database",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    expect(
+      await prod.searchEntities({ query: "database", limit: 100 }, NOW),
+    ).toBe(
+      `[
+  {
+    "name": "PG",
+    "type": "Database",
+    "updated": "7 days ago"
+  }
+]`,
+    );
   });
 
   it("applies the query filter, ordering, and limit together", async () => {
@@ -203,8 +284,22 @@ describe("searchEntities", () => {
       type: "language",
       updated_at: "2026-01-04T00:00:00.000Z",
     });
-    const rows = await prod.searchEntities({ query: "database", limit: 2 });
-    expect(rows.map((r) => r.name)).toEqual(["New", "Mid"]);
+    expect(
+      await prod.searchEntities({ query: "database", limit: 2 }, NOW),
+    ).toBe(
+      `[
+  {
+    "name": "New",
+    "type": "database",
+    "updated": "5 days ago"
+  },
+  {
+    "name": "Mid",
+    "type": "database",
+    "updated": "6 days ago"
+  }
+]`,
+    );
   });
 });
 
@@ -217,8 +312,17 @@ describe("round-trip", () => {
       type: "database",
       summary: "written by upsert, read by search",
     });
-    const rows = await prod.searchEntities({ query: "Roundtrip", limit: 100 });
-    expect(rows.map((r) => r.name)).toContain("Roundtrip");
+    // No clock passed: the just-written row is seconds old, so "just now".
+    expect(await prod.searchEntities({ query: "Roundtrip", limit: 100 })).toBe(
+      `[
+  {
+    "name": "Roundtrip",
+    "type": "database",
+    "summary": "written by upsert, read by search",
+    "updated": "just now"
+  }
+]`,
+    );
   });
 });
 

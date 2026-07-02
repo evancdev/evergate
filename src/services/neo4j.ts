@@ -1,7 +1,8 @@
 import { z } from "zod";
 import neo4j, { type Driver } from "neo4j-driver";
 import { needsImplicitTx } from "../errors.js";
-import { searchSchema, upsertSchema } from "../schema.js";
+import { relativeTime } from "../lib.js";
+import { entitySchema, searchSchema, upsertSchema } from "../schema.js";
 import { type Neo4jConfig } from "../types/configs.js";
 
 export class Neo4jService {
@@ -72,7 +73,8 @@ export class Neo4jService {
   /** Find entities whose name or type contains the query; lists recent entities when no query is given. */
   async searchEntities(
     input: z.infer<typeof searchSchema>,
-  ): Promise<Record<string, unknown>[]> {
+    now: number = Date.now(),
+  ): Promise<string> {
     const rows = await this.query(
       `MATCH (e:Entity)
        WHERE $query IS NULL
@@ -83,6 +85,15 @@ export class Neo4jService {
        LIMIT $limit`,
       { query: input.query ?? null, limit: neo4j.int(input.limit) },
     );
-    return rows.map((r) => r.entity as Record<string, unknown>);
+    const results = rows.map((r) => {
+      const e = entitySchema.parse(r.entity);
+      return {
+        name: e.name,
+        type: e.type,
+        summary: e.summary,
+        updated: relativeTime(e.updated_at, now),
+      };
+    });
+    return JSON.stringify(results, null, 2);
   }
 }

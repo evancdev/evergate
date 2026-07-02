@@ -10,6 +10,10 @@ export const upsertSchema = z.object({
     .describe("What the entity is, in one or two sentences"),
 });
 
+export const entitySchema = upsertSchema.extend({
+  updated_at: z.string().datetime(),
+});
+
 export const searchSchema = z.object({
   query: z
     .string()

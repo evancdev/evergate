@@ -2,7 +2,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { services } from "./services/index.js";
 import { searchSchema, upsertSchema } from "./schema.js";
-import { relativeTime } from "./lib.js";
 import { logger } from "./logger.js";
 
 /** The response for any failed tool call; the specific cause is logged, not shown. */
@@ -45,14 +44,8 @@ export function registerTools(server: McpServer): void {
     },
     async (input): Promise<CallToolResult> => {
       try {
-        const entities = await services.neo4j.searchEntities(input);
-        const results = entities.map(({ updated_at, ...entity }) => ({
-          ...entity,
-          updated: relativeTime(updated_at as string),
-        }));
-        return {
-          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
-        };
+        const text = await services.neo4j.searchEntities(input);
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         logger.error("search_entities failed", err, input);
         return FAILURE_RESPONSE;
