@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "test": "pnpm run test:unit && pnpm run test:integration",
     "test:unit": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "./scripts/with-docker.sh vitest run --config vitest.integration.config.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docker:up": "docker compose --env-file .env -f docker/compose.yml up -d --build",
