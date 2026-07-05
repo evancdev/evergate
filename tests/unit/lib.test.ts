@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { relativeTime } from "../../src/lib.js";
+import { normalizeText, relativeTime } from "../../src/lib.js";
 
 const NOW = Date.parse("2026-06-30T12:00:00.000Z");
 const SEC = 1000;
@@ -46,4 +46,19 @@ describe("relativeTime", () => {
       expect(relativeTime(iso as string, NOW)).toBeNull();
     },
   );
+});
+
+describe("normalizeText", () => {
+  it("leaves already-canonical text unchanged", () => {
+    expect(normalizeText("database")).toBe("database");
+  });
+
+  it("trims surrounding whitespace and lowercases", () => {
+    expect(normalizeText("  DataBase  ")).toBe("database");
+  });
+
+  it("yields null for blank or absent input", () => {
+    expect(normalizeText("   ")).toBeNull();
+    expect(normalizeText(undefined)).toBeNull();
+  });
 });

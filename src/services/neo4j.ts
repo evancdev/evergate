@@ -1,8 +1,13 @@
 import { z } from "zod";
 import neo4j, { type Driver } from "neo4j-driver";
 import { needsImplicitTx } from "../errors.js";
-import { relativeTime } from "../lib.js";
-import { entitySchema, searchSchema, upsertSchema } from "../schema.js";
+import { normalizeText, relativeTime } from "../lib.js";
+import {
+  entitySchema,
+  listSchema,
+  searchSchema,
+  upsertSchema,
+} from "../schema.js";
 import { type Neo4jConfig } from "../types/configs.js";
 
 export class Neo4jService {
@@ -63,23 +68,54 @@ export class Neo4jService {
            e.summary = coalesce($summary, e.summary)`,
       {
         name: input.name,
-        type: input.type ?? null,
+        type: normalizeText(input.type),
         summary: input.summary ?? null,
         now: new Date().toISOString(),
       },
     );
   }
 
-  /** Find entities whose name or type contains the query; lists recent entities when no query is given. */
+  /** List the type vocabulary, or one type's entity names when a type is given. */
+  async list(input: z.infer<typeof listSchema>): Promise<string> {
+    const type = normalizeText(input.type);
+    if (type !== null) {
+      const names = await this.listEntitiesByType(type);
+      return names.join("\n") || `No entities of type "${type}".`;
+    }
+    const types = await this.listTypes();
+    return types.join("\n") || "No types yet.";
+  }
+
+  /** List the distinct types in use, excluding untyped entities. */
+  private async listTypes(): Promise<string[]> {
+    const rows = await this.query(
+      `MATCH (e:Entity)
+       WHERE e.type IS NOT NULL
+       RETURN DISTINCT e.type AS type
+       ORDER BY type`,
+    );
+    return rows.map((r) => r.type as string);
+  }
+
+  /** List the names of every entity of one exact type. */
+  private async listEntitiesByType(type: string): Promise<string[]> {
+    const rows = await this.query(
+      `MATCH (e:Entity {type: $type})
+       RETURN e.name AS name
+       ORDER BY e.name`,
+      { type },
+    );
+    return rows.map((r) => r.name as string);
+  }
+
+  /** Find entities whose name contains the query; lists recent entities when no query is given. */
   async searchEntities(
     input: z.infer<typeof searchSchema>,
     now: number = Date.now(),
   ): Promise<string> {
     const rows = await this.query(
       `MATCH (e:Entity)
-       WHERE $query IS NULL
-          OR toLower(e.name) CONTAINS toLower($query)
-          OR toLower(coalesce(e.type, "")) CONTAINS toLower($query)
+       WHERE $query IS NULL OR toLower(e.name) CONTAINS toLower($query)
        RETURN e { .* } AS entity
        ORDER BY e.updated_at DESC
        LIMIT $limit`,

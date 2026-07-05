@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { upsertSchema, searchSchema } from "../../src/schema.js";
+import { upsertSchema, searchSchema, listSchema } from "../../src/schema.js";
 
 describe("upsertSchema", () => {
   it("accepts a name on its own (type and summary are optional)", () => {
@@ -15,6 +15,16 @@ describe("upsertSchema", () => {
     expect(upsertSchema.safeParse({ name: "X", summary: "" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("listSchema", () => {
+  it("accepts an empty input (type is optional)", () => {
+    expect(listSchema.parse({})).toEqual({});
+  });
+
+  it("rejects an empty type string", () => {
+    expect(listSchema.safeParse({ type: "" }).success).toBe(false);
   });
 });
 

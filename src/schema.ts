@@ -15,11 +15,7 @@ export const entitySchema = upsertSchema.extend({
 });
 
 export const searchSchema = z.object({
-  query: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("Text to match against name and type"),
+  query: z.string().min(1).optional().describe("Text to match against name"),
   limit: z
     .number()
     .int()
@@ -27,4 +23,12 @@ export const searchSchema = z.object({
     .max(100)
     .default(10)
     .describe("Maximum number of entities to return"),
+});
+
+export const listSchema = z.object({
+  type: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("A type to list the entities of; omit to list all types instead"),
 });

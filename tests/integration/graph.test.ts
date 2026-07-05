@@ -86,6 +86,18 @@ describe("upsertEntity", () => {
     expect(e).not.toHaveProperty("summary");
   });
 
+  it("normalizes the type (trim + lowercase) on write", async () => {
+    await prod.upsertEntity({ name: "Neo4j", type: "  DataBase  " });
+    const e = await test.readNode("Neo4j");
+    expect(e).toMatchObject({ type: "database" });
+  });
+
+  it("drops a blank (whitespace-only) type rather than storing an empty string", async () => {
+    await prod.upsertEntity({ name: "Blank", type: "   " });
+    const e = await test.readNode("Blank");
+    expect(e).not.toHaveProperty("type");
+  });
+
   it("refreshes updated_at on every update", async () => {
     await prod.upsertEntity({ name: "Neo4j", type: "database" });
     const before = await test.readNode("Neo4j");
@@ -117,24 +129,6 @@ describe("searchEntities", () => {
     );
   });
 
-  it("matches on type", async () => {
-    await test.seed({
-      name: "Neo4j",
-      type: "database",
-      updated_at: "2026-01-01T00:00:00.000Z",
-    });
-    await test.seed({ name: "Cypher", type: "language" });
-    expect(await prod.searchEntities({ query: "data", limit: 100 }, NOW)).toBe(
-      `[
-  {
-    "name": "Neo4j",
-    "type": "database",
-    "updated": "7 days ago"
-  }
-]`,
-    );
-  });
-
   it("does not match on summary", async () => {
     await test.seed({
       name: "Widget",
@@ -143,6 +137,13 @@ describe("searchEntities", () => {
     });
     expect(
       await prod.searchEntities({ query: "unicorn", limit: 100 }, NOW),
+    ).toBe("[]");
+  });
+
+  it("does not match on type (that is list_types' job)", async () => {
+    await test.seed({ name: "Neo4j", type: "database" });
+    expect(
+      await prod.searchEntities({ query: "database", limit: 100 }, NOW),
     ).toBe("[]");
   });
 
@@ -243,63 +244,93 @@ describe("searchEntities", () => {
     );
   });
 
-  it("matches on type case-insensitively on the stored side too", async () => {
-    await test.seed({
-      name: "PG",
-      type: "Database",
-      updated_at: "2026-01-01T00:00:00.000Z",
-    });
-    expect(
-      await prod.searchEntities({ query: "database", limit: 100 }, NOW),
-    ).toBe(
-      `[
-  {
-    "name": "PG",
-    "type": "Database",
-    "updated": "7 days ago"
-  }
-]`,
-    );
-  });
-
   it("applies the query filter, ordering, and limit together", async () => {
-    // "Other" is the newest row but the wrong type: proof the filter runs before ORDER BY + LIMIT.
+    // "Newest" is the most recent row but doesn't match the query: proof the
+    // filter runs before ORDER BY + LIMIT.
     await test.seed({
-      name: "Old",
-      type: "database",
+      name: "alpha-node",
       updated_at: "2026-01-01T00:00:00.000Z",
     });
     await test.seed({
-      name: "Mid",
-      type: "database",
+      name: "beta-node",
       updated_at: "2026-01-02T00:00:00.000Z",
     });
     await test.seed({
-      name: "New",
-      type: "database",
+      name: "gamma-node",
       updated_at: "2026-01-03T00:00:00.000Z",
     });
-    await test.seed({
-      name: "Other",
-      type: "language",
-      updated_at: "2026-01-04T00:00:00.000Z",
-    });
-    expect(
-      await prod.searchEntities({ query: "database", limit: 2 }, NOW),
-    ).toBe(
+    await test.seed({ name: "Newest", updated_at: "2026-01-04T00:00:00.000Z" });
+    expect(await prod.searchEntities({ query: "node", limit: 2 }, NOW)).toBe(
       `[
   {
-    "name": "New",
-    "type": "database",
+    "name": "gamma-node",
     "updated": "5 days ago"
   },
   {
-    "name": "Mid",
-    "type": "database",
+    "name": "beta-node",
     "updated": "6 days ago"
   }
 ]`,
     );
+  });
+});
+
+describe("list without a type (vocabulary)", () => {
+  it("lists each distinct type once, ordered by type", async () => {
+    await test.seed({ name: "Postgres", type: "database" });
+    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({ name: "Cypher", type: "language" });
+    expect(await prod.list({})).toBe("database\nlanguage");
+  });
+
+  it("omits untyped entities from the vocabulary", async () => {
+    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({ name: "Cypher", type: "language" });
+    await test.seed({ name: "Solo" });
+    await test.seed({ name: "Duo" });
+    expect(await prod.list({})).toBe("database\nlanguage");
+  });
+
+  it("reports no types when every entity is untyped", async () => {
+    await test.seed({ name: "Solo" });
+    await test.seed({ name: "Duo" });
+    expect(await prod.list({})).toBe("No types yet.");
+  });
+
+  it("reports no types when the graph is empty", async () => {
+    expect(await prod.list({})).toBe("No types yet.");
+  });
+});
+
+describe("list with a type (drill-in)", () => {
+  it("lists that type's entity names, ordered by name", async () => {
+    await test.seed({ name: "Postgres", type: "database" });
+    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({ name: "Cypher", type: "language" });
+    expect(await prod.list({ type: "database" })).toBe("Neo4j\nPostgres");
+  });
+
+  it("matches the type case-sensitively at the storage layer", async () => {
+    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({ name: "Mongo", type: "Database" });
+    expect(await prod.list({ type: "database" })).toBe("Neo4j");
+  });
+
+  it("normalizes the queried type (trim + lowercase)", async () => {
+    await test.seed({ name: "Neo4j", type: "database" });
+    expect(await prod.list({ type: "  DATABASE  " })).toBe("Neo4j");
+  });
+
+  it("reports a type with no entities", async () => {
+    expect(await prod.list({ type: "nonexistent" })).toBe(
+      'No entities of type "nonexistent".',
+    );
+  });
+
+  it("treats a whitespace-only type as no type and lists the vocabulary", async () => {
+    await test.seed({ name: "Neo4j", type: "database" });
+    await test.seed({ name: "Cypher", type: "language" });
+    expect(await prod.list({ type: "   " })).toBe("database\nlanguage");
   });
 });
 

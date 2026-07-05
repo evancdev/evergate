@@ -1,3 +1,8 @@
+/** Trim and lowercase text; blank or absent yields null. */
+export function normalizeText(text: string | undefined): string | null {
+  return (text ?? "").trim().toLowerCase() || null;
+}
+
 /** Format an ISO timestamp as a relative note of how long ago it was; null if missing, malformed, or in the future. */
 export function relativeTime(
   iso: string,

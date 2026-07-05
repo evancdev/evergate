@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { services } from "./services/index.js";
-import { searchSchema, upsertSchema } from "./schema.js";
+import { listSchema, searchSchema, upsertSchema } from "./schema.js";
 import { logger } from "./logger.js";
 
 /** The response for any failed tool call; the specific cause is logged, not shown. */
@@ -36,10 +36,28 @@ export function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "list_types",
+    {
+      description:
+        "List the types in use, or pass a type to list its entities.",
+      inputSchema: listSchema,
+    },
+    async (input): Promise<CallToolResult> => {
+      try {
+        const text = await services.neo4j.list(input);
+        return { content: [{ type: "text", text }] };
+      } catch (err) {
+        logger.error("list_types failed", err, input);
+        return FAILURE_RESPONSE;
+      }
+    },
+  );
+
+  server.registerTool(
     "search_entities",
     {
       description:
-        "Search entities by text across name and type; lists recent entities when no query is provided.",
+        "Search entities by name; lists recent entities when no query is provided.",
       inputSchema: searchSchema,
     },
     async (input): Promise<CallToolResult> => {
