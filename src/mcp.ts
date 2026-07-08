@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { env } from "./env.js";
-import { registerTools } from "./tools.js";
+import { registerTools } from "./tools/index.js";
 
 /** Handle one request: a fresh server + transport per call */
 const handlePost = async (req: Request, res: Response) => {

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { upsertSchema, searchSchema, listSchema } from "../../src/schema.js";
+import {
+  upsertSchema,
+  searchSchema,
+  listSchema,
+} from "../../src/schemas/neo4j.js";
+import { registerSessionSchema } from "../../src/schemas/hermes.js";
 
 describe("upsertSchema", () => {
   it("accepts a name on its own (type and summary are optional)", () => {
@@ -47,5 +52,33 @@ describe("searchSchema", () => {
 
   it("rejects an empty query string", () => {
     expect(searchSchema.safeParse({ query: "" }).success).toBe(false);
+  });
+});
+
+describe("registerSessionSchema", () => {
+  it("accepts a non-empty description", () => {
+    expect(
+      registerSessionSchema.safeParse({ description: "building the api" })
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects a missing description", () => {
+    expect(registerSessionSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects an empty or whitespace-only description", () => {
+    expect(registerSessionSchema.safeParse({ description: "" }).success).toBe(
+      false,
+    );
+    expect(
+      registerSessionSchema.safeParse({ description: "   " }).success,
+    ).toBe(false);
+  });
+
+  it("trims the stored description", () => {
+    expect(registerSessionSchema.parse({ description: "  hi  " })).toEqual({
+      description: "hi",
+    });
   });
 });

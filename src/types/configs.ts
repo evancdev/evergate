@@ -3,3 +3,7 @@ export interface Neo4jConfig {
   user: string;
   password: string;
 }
+
+export interface HermesConfig {
+  dbPath: string;
+}

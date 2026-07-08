@@ -1,22 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { services } from "./services/index.js";
-import { listSchema, searchSchema, upsertSchema } from "./schema.js";
-import { logger } from "./logger.js";
+import { services } from "../services/index.js";
+import { listSchema, searchSchema, upsertSchema } from "../schemas/neo4j.js";
+import { logger } from "../logger.js";
+import { FAILURE_RESPONSE, formatTool } from "./shared.js";
 
-/** The response for any failed tool call; the specific cause is logged, not shown. */
-const FAILURE_RESPONSE: CallToolResult = {
-  content: [
-    {
-      type: "text",
-      text: "Tool failed. Surface this to the user and let them decide how to proceed.",
-    },
-  ],
-  isError: true,
-};
-
-/** Attach tools to the provided MCP server. */
-export function registerTools(server: McpServer): void {
+/** Attach the Neo4j knowledge-graph tools to the MCP server. */
+export function registerNeo4jTools(server: McpServer): void {
   server.registerTool(
     "upsert_entity",
     {
@@ -27,7 +17,7 @@ export function registerTools(server: McpServer): void {
     async (input): Promise<CallToolResult> => {
       try {
         await services.neo4j.upsertEntity(input);
-        return { content: [{ type: "text", text: "success" }] };
+        return formatTool("success");
       } catch (err) {
         logger.error("upsert_entity failed", err, input);
         return FAILURE_RESPONSE;
@@ -44,8 +34,8 @@ export function registerTools(server: McpServer): void {
     },
     async (input): Promise<CallToolResult> => {
       try {
-        const text = await services.neo4j.list(input);
-        return { content: [{ type: "text", text }] };
+        const result = await services.neo4j.list(input);
+        return formatTool(result);
       } catch (err) {
         logger.error("list_types failed", err, input);
         return FAILURE_RESPONSE;
@@ -62,8 +52,8 @@ export function registerTools(server: McpServer): void {
     },
     async (input): Promise<CallToolResult> => {
       try {
-        const text = await services.neo4j.searchEntities(input);
-        return { content: [{ type: "text", text }] };
+        const result = await services.neo4j.searchEntities(input);
+        return formatTool(result);
       } catch (err) {
         logger.error("search_entities failed", err, input);
         return FAILURE_RESPONSE;

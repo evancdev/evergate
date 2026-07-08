@@ -7,7 +7,7 @@ import {
   listSchema,
   searchSchema,
   upsertSchema,
-} from "../schema.js";
+} from "../schemas/neo4j.js";
 import { type Neo4jConfig } from "../types/configs.js";
 
 export class Neo4jService {

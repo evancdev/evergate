@@ -17,4 +17,7 @@ export const env = {
     user: process.env.NEO4J_USER ?? "neo4j",
     password: neo4jPassword,
   },
+  hermes: {
+    dbPath: process.env.HERMES_DB_PATH ?? "data/hermes.db",
+  },
 };
