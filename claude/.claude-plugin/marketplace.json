@@ -1,0 +1,21 @@
+{
+  "name": "evergate",
+  "description": "Local marketplace for testing the Evergate dev plugin.",
+  "owner": {
+    "name": "Evan Chen",
+    "email": "evanctech@gmail.com",
+    "url": "https://github.com/evancdev"
+  },
+  "plugins": [
+    {
+      "name": "evergate",
+      "description": "Local dev plugin for the Evergate MCP server",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "Evan Chen",
+        "email": "evanctech@gmail.com"
+      }
+    }
+  ]
+}
