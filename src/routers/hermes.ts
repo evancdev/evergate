@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { services } from "../services/index.js";
+import { services } from "@/services/index";
 
 const deregisterSession = (req: Request, res: Response) => {
   services.hermes.deregister(req.headers);

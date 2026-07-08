@@ -1,12 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { services } from "../services/index.js";
+import { services } from "@/services/index";
 import {
   registerSessionSchema,
   listSessionsOutputSchema,
-} from "../schemas/hermes.js";
-import { logger } from "../logger.js";
-import { FAILURE_RESPONSE, formatStructured, formatText } from "./shared.js";
+} from "@/schemas/hermes";
+import { logger } from "@/logger";
+import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
 
 /** Attach the Hermes agent-to-agent messaging tools to the MCP server. */
 export function registerHermesTools(server: McpServer): void {

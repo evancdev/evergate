@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { Hermes } from "../../src/services/hermes.js";
-import { MissingIdentityError } from "../../src/errors.js";
-import { listSessionsOutputSchema } from "../../src/schemas/hermes.js";
+import { Hermes } from "@/services/hermes";
+import { MissingIdentityError } from "@/errors";
+import { listSessionsOutputSchema } from "@/schemas/hermes";
 
 const NOW = Date.parse("2026-07-05T12:00:00.000Z");
 const MID = Date.parse("2026-07-05T12:15:00.000Z");

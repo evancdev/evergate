@@ -1,10 +1,10 @@
 import { type Server } from "node:http";
 import express from "express";
-import { router } from "./routers/index.js";
-import { errorHandler } from "./middleware/error.js";
-import { logger } from "./logger.js";
-import { env } from "./env.js";
-import { services } from "./services/index.js";
+import { router } from "@/routers/index";
+import { errorHandler } from "@/middleware/error";
+import { logger } from "@/logger";
+import { env } from "@/env";
+import { services } from "@/services/index";
 
 const TERMINATION_GRACE_PERIOD_MS = 10_000;
 

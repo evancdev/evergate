@@ -3,10 +3,10 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { registerSessionSchema, type Session } from "../schemas/hermes.js";
-import { type HermesConfig } from "../types/configs.js";
-import { relativeTime } from "../lib.js";
-import { MissingIdentityError } from "../errors.js";
+import { registerSessionSchema, type Session } from "@/schemas/hermes";
+import { type HermesConfig } from "@/types/configs";
+import { relativeTime } from "@/lib";
+import { MissingIdentityError } from "@/errors";
 
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the

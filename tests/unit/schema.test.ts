@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import {
-  upsertSchema,
-  searchSchema,
-  listSchema,
-} from "../../src/schemas/neo4j.js";
+import { upsertSchema, searchSchema, listSchema } from "@/schemas/neo4j";
 import {
   registerSessionSchema,
   listSessionsOutputSchema,
-} from "../../src/schemas/hermes.js";
+} from "@/schemas/hermes";
 
 describe("upsertSchema", () => {
   it("accepts a name on its own (type and summary are optional)", () => {

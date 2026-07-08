@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { z, ZodError } from "zod";
-import { MissingIdentityError } from "../errors.js";
-import { logger } from "../logger.js";
+import { MissingIdentityError } from "@/errors";
+import { logger } from "@/logger";
 
 /** Central error handling. */
 export const errorHandler = (

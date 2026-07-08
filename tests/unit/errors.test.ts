@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import neo4j from "neo4j-driver";
-import { needsImplicitTx } from "../../src/errors.js";
+import { needsImplicitTx } from "@/errors";
 
 // All messages + codes are real Neo4j errors (CALL-IN-TX / PERIODIC-COMMIT verified on a live
 // 5.26.27; the other codes occur on other versions/editions). Casing is fixed, so matching is case-sensitive.

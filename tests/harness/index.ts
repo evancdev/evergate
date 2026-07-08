@@ -1,4 +1,4 @@
-import { Neo4jTestService } from "./neo4j.js";
+import { Neo4jTestService } from "@tests/harness/neo4j";
 
 /**
  * Test-side composition root: starts every test service against its own throwaway

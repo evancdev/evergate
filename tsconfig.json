@@ -17,7 +17,13 @@
     "noImplicitOverride": true,
 
     /* tsx runs the code — tsc only type-checks */
-    "noEmit": true
+    "noEmit": true,
+
+    /* Absolute imports */
+    "paths": {
+      "@/*": ["./src/*"],
+      "@tests/*": ["./tests/*"]
+    }
   },
   "include": ["src", "tests"]
 }

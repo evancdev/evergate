@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { mcpRouter } from "./mcp.js";
-import { hermesRouter } from "./hermes.js";
+import { mcpRouter } from "@/routers/mcp";
+import { hermesRouter } from "@/routers/hermes";
 
 export const router = Router();
 router.use("/mcp", mcpRouter);

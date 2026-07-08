@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { type Neo4jService } from "../../src/services/neo4j.js";
-import { type Neo4jTestService } from "../harness/neo4j.js";
-import { TestingHarness } from "../harness/index.js";
-import { sleep } from "../lib.js";
+import { type Neo4jService } from "@/services/neo4j";
+import { type Neo4jTestService } from "@tests/harness/neo4j";
+import { TestingHarness } from "@tests/harness/index";
+import { sleep } from "@tests/lib";
 
 let harness: TestingHarness;
 let test: Neo4jTestService;

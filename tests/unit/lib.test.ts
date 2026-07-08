@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeText, relativeTime } from "../../src/lib.js";
+import { normalizeText, relativeTime } from "@/lib";
 
 const NOW = Date.parse("2026-06-30T12:00:00.000Z");
 const SEC = 1000;
