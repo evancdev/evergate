@@ -150,6 +150,44 @@ describe("listSessions", () => {
   });
 });
 
+describe("deregister", () => {
+  it("removes exactly that session and leaves the others", () => {
+    register("session-a", { description: "one" });
+    register("session-b", { description: "two" });
+    hermes.deregister("session-a");
+    expect(hermes.getSession("session-a")).toBeUndefined();
+    expect(hermes.getSession("session-b")?.description).toBe("two");
+  });
+
+  it("drops the session from the directory listing", () => {
+    register("session-a", { description: "one" });
+    register("session-b", { description: "two" });
+    hermes.deregister("session-a");
+    expect(hermes.listSessions().sessions.map((s) => s.session_id)).toEqual([
+      "session-b",
+    ]);
+  });
+
+  it("is a no-op for an unknown id, disturbing nothing", () => {
+    register("session-a", { description: "one" });
+    expect(() => hermes.deregister("nobody")).not.toThrow();
+    expect(hermes.getSession("session-a")?.description).toBe("one");
+    expect(hermes.listSessions().sessions).toHaveLength(1);
+  });
+
+  it("lets a deregistered id register again as a fresh session", () => {
+    register("session-a", { description: "one" }, NOW);
+    hermes.deregister("session-a");
+    register("session-a", { description: "back again" }, LATER);
+    expect(hermes.getSession("session-a")).toEqual({
+      session_id: "session-a",
+      description: "back again",
+      registered_at: new Date(LATER).toISOString(),
+      last_seen: new Date(LATER).toISOString(),
+    });
+  });
+});
+
 describe("registerSession identity", () => {
   const input = { description: "x" };
 

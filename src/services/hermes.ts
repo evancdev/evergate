@@ -88,6 +88,13 @@ export class Hermes {
     };
   }
 
+  /** Remove a session from the directory. An unknown id is a no-op. */
+  deregister(sessionId: string): void {
+    this.db
+      .prepare(`DELETE FROM sessions WHERE session_id = @sessionId`)
+      .run({ sessionId });
+  }
+
   /** The session with this id, or undefined if none is present. */
   getSession(sessionId: string): Session | undefined {
     return this.db

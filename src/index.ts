@@ -1,6 +1,7 @@
 import { type Server } from "node:http";
 import express from "express";
-import { mcpRouter } from "./mcp.js";
+import { router } from "./routers/index.js";
+import { errorHandler } from "./middleware/error.js";
 import { logger } from "./logger.js";
 import { env } from "./env.js";
 import { services } from "./services/index.js";
@@ -10,11 +11,13 @@ const TERMINATION_GRACE_PERIOD_MS = 10_000;
 const app = express();
 app.use(express.json());
 
-app.use("/mcp", mcpRouter);
+app.use(router);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+app.use(errorHandler);
 
 let isShuttingDown = false;
 

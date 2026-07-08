@@ -27,7 +27,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "neo4j-driver": "^6.1.0",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

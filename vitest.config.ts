@@ -9,7 +9,8 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: [
         "src/index.ts",
-        "src/mcp.ts",
+        "src/routers/**",
+        "src/middleware/**",
         "src/env.ts",
         "src/logger.ts",
         "src/types/**",
