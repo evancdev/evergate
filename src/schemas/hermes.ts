@@ -8,10 +8,6 @@ export const registerSessionSchema = z.object({
     .describe("One line on what you're working on"),
 });
 
-export const deregisterSchema = z.looseObject({
-  "x-hermes-agent": z.string().trim().min(1),
-});
-
 export interface Session {
   session_id: string;
   description: string;
