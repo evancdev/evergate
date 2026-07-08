@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import {
   upsertSchema,
   searchSchema,
   listSchema,
 } from "../../src/schemas/neo4j.js";
-import { registerSessionSchema } from "../../src/schemas/hermes.js";
+import {
+  registerSessionSchema,
+  listSessionsOutputSchema,
+} from "../../src/schemas/hermes.js";
 
 describe("upsertSchema", () => {
   it("accepts a name on its own (type and summary are optional)", () => {
@@ -67,6 +71,12 @@ describe("registerSessionSchema", () => {
     expect(registerSessionSchema.safeParse({}).success).toBe(false);
   });
 
+  it("rejects a non-string description", () => {
+    expect(registerSessionSchema.safeParse({ description: 123 }).success).toBe(
+      false,
+    );
+  });
+
   it("rejects an empty or whitespace-only description", () => {
     expect(registerSessionSchema.safeParse({ description: "" }).success).toBe(
       false,
@@ -80,5 +90,40 @@ describe("registerSessionSchema", () => {
     expect(registerSessionSchema.parse({ description: "  hi  " })).toEqual({
       description: "hi",
     });
+  });
+
+  it("trims before the min-length check at the boundary", () => {
+    expect(registerSessionSchema.parse({ description: " a " })).toEqual({
+      description: "a",
+    });
+  });
+});
+
+describe("listSessionsOutputSchema", () => {
+  const schema = z.object(listSessionsOutputSchema);
+
+  it("accepts a well-formed list_sessions payload", () => {
+    expect(
+      schema.safeParse({
+        sessions: [
+          { session_id: "s1", description: "one", last_seen: "just now" },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts an empty sessions array", () => {
+    expect(schema.safeParse({ sessions: [] }).success).toBe(true);
+  });
+
+  it("rejects a session missing a required field", () => {
+    expect(
+      schema.safeParse({ sessions: [{ session_id: "s1", last_seen: "x" }] })
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects a missing sessions array", () => {
+    expect(schema.safeParse({}).success).toBe(false);
   });
 });

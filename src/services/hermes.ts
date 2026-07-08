@@ -5,6 +5,7 @@ import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { registerSessionSchema, type Session } from "../schemas/hermes.js";
 import { type HermesConfig } from "../types/configs.js";
+import { relativeTime } from "../lib.js";
 
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
@@ -68,6 +69,23 @@ export class Hermes {
            description = @description, last_seen = @now`,
       )
       .run({ sessionId, description: input.description, now: at });
+  }
+
+  /** Every registered session, most recently seen first. */
+  listSessions(now: number = Date.now()) {
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, description, last_seen
+           FROM sessions ORDER BY last_seen DESC`,
+      )
+      .all() as Pick<Session, "session_id" | "description" | "last_seen">[];
+    return {
+      sessions: rows.map((s) => ({
+        session_id: s.session_id,
+        description: s.description,
+        last_seen: relativeTime(s.last_seen, now) ?? s.last_seen,
+      })),
+    };
   }
 
   /** The session with this id, or undefined if none is present. */

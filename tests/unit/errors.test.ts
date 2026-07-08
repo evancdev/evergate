@@ -109,6 +109,12 @@ describe("needsImplicitTx", () => {
     ).toBe(false);
   });
 
+  it("tolerates a matching code with no message at all", () => {
+    const e = err("Neo.DatabaseError.Transaction.TransactionStartFailed", "x");
+    (e as { message?: string }).message = undefined;
+    expect(needsImplicitTx(e)).toBe(false);
+  });
+
   it("returns false for non-Neo4jError values", () => {
     expect(needsImplicitTx(new Error(CALL_IN_TX_MSG))).toBe(false);
     expect(

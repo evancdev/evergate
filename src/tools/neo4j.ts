@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { services } from "../services/index.js";
 import { listSchema, searchSchema, upsertSchema } from "../schemas/neo4j.js";
 import { logger } from "../logger.js";
-import { FAILURE_RESPONSE, formatTool } from "./shared.js";
+import { FAILURE_RESPONSE, formatText } from "./shared.js";
 
 /** Attach the Neo4j knowledge-graph tools to the MCP server. */
 export function registerNeo4jTools(server: McpServer): void {
@@ -17,7 +17,7 @@ export function registerNeo4jTools(server: McpServer): void {
     async (input): Promise<CallToolResult> => {
       try {
         await services.neo4j.upsertEntity(input);
-        return formatTool("success");
+        return formatText("success");
       } catch (err) {
         logger.error("upsert_entity failed", err, input);
         return FAILURE_RESPONSE;
@@ -35,7 +35,7 @@ export function registerNeo4jTools(server: McpServer): void {
     async (input): Promise<CallToolResult> => {
       try {
         const result = await services.neo4j.list(input);
-        return formatTool(result);
+        return formatText(result);
       } catch (err) {
         logger.error("list_types failed", err, input);
         return FAILURE_RESPONSE;
@@ -53,7 +53,7 @@ export function registerNeo4jTools(server: McpServer): void {
     async (input): Promise<CallToolResult> => {
       try {
         const result = await services.neo4j.searchEntities(input);
-        return formatTool(result);
+        return formatText(result);
       } catch (err) {
         logger.error("search_entities failed", err, input);
         return FAILURE_RESPONSE;

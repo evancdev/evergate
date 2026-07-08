@@ -14,3 +14,13 @@ export interface Session {
   registered_at: string;
   last_seen: string;
 }
+
+const sessionSummarySchema = z.object({
+  session_id: z.string(),
+  description: z.string(),
+  last_seen: z.string().describe("how long ago the session checked in"),
+});
+
+export const listSessionsOutputSchema = {
+  sessions: z.array(sessionSummarySchema),
+};
