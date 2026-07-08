@@ -1,4 +1,4 @@
-# Mimir stack — Neo4j (graph + native vector index) + the MCP server. Local only.
+# Evergate stack — Neo4j (the Mimir knowledge graph) + the MCP server. Local only.
 services:
   neo4j:
     image: neo4j:5.26-community
@@ -30,7 +30,7 @@ services:
     build:
       context: ..
       dockerfile: docker/mcp/Dockerfile
-    container_name: mimir-mcp
+    container_name: evergate-mcp
     restart: unless-stopped
     ports:
       - "127.0.0.1:8765:8765" # MCP local server
