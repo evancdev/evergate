@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { z, ZodError } from "zod";
+import { MissingIdentityError } from "../errors.js";
 import { logger } from "../logger.js";
 
 /** Central error handling. */
@@ -13,6 +14,10 @@ export const errorHandler = (
     res
       .status(400)
       .json({ description: z.prettifyError(err), errors: z.treeifyError(err) });
+    return;
+  }
+  if (err instanceof MissingIdentityError) {
+    res.status(400).json({ description: err.message });
     return;
   }
   logger.error("Unhandled error", err);

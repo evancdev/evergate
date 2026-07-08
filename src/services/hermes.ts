@@ -6,6 +6,7 @@ import { z } from "zod";
 import { registerSessionSchema, type Session } from "../schemas/hermes.js";
 import { type HermesConfig } from "../types/configs.js";
 import { relativeTime } from "../lib.js";
+import { MissingIdentityError } from "../errors.js";
 
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
@@ -14,7 +15,7 @@ import { relativeTime } from "../lib.js";
 function sessionIdFrom(headers: IsomorphicHeaders | undefined): string {
   const raw = headers?.["x-hermes-agent"];
   const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
-  if (!value) throw new Error("missing X-Hermes-Agent header");
+  if (!value) throw new MissingIdentityError("Missing X-Hermes-Agent header");
   return value;
 }
 
@@ -88,8 +89,9 @@ export class Hermes {
     };
   }
 
-  /** Remove a session from the directory. An unknown id is a no-op. */
-  deregister(sessionId: string): void {
+  /** Remove the calling session, identified by its X-Hermes-Agent header. Unknown id is a no-op. */
+  deregister(headers: IsomorphicHeaders | undefined): void {
+    const sessionId = sessionIdFrom(headers);
     this.db
       .prepare(`DELETE FROM sessions WHERE session_id = @sessionId`)
       .run({ sessionId });

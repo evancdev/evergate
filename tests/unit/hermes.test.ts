@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { Hermes } from "../../src/services/hermes.js";
+import { MissingIdentityError } from "../../src/errors.js";
 import { listSessionsOutputSchema } from "../../src/schemas/hermes.js";
 
 const NOW = Date.parse("2026-07-05T12:00:00.000Z");
@@ -154,7 +155,7 @@ describe("deregister", () => {
   it("removes exactly that session and leaves the others", () => {
     register("session-a", { description: "one" });
     register("session-b", { description: "two" });
-    hermes.deregister("session-a");
+    hermes.deregister({ "x-hermes-agent": "session-a" });
     expect(hermes.getSession("session-a")).toBeUndefined();
     expect(hermes.getSession("session-b")?.description).toBe("two");
   });
@@ -162,7 +163,7 @@ describe("deregister", () => {
   it("drops the session from the directory listing", () => {
     register("session-a", { description: "one" });
     register("session-b", { description: "two" });
-    hermes.deregister("session-a");
+    hermes.deregister({ "x-hermes-agent": "session-a" });
     expect(hermes.listSessions().sessions.map((s) => s.session_id)).toEqual([
       "session-b",
     ]);
@@ -170,14 +171,20 @@ describe("deregister", () => {
 
   it("is a no-op for an unknown id, disturbing nothing", () => {
     register("session-a", { description: "one" });
-    expect(() => hermes.deregister("nobody")).not.toThrow();
+    expect(() =>
+      hermes.deregister({ "x-hermes-agent": "nobody" }),
+    ).not.toThrow();
     expect(hermes.getSession("session-a")?.description).toBe("one");
     expect(hermes.listSessions().sessions).toHaveLength(1);
   });
 
+  it("throws when the X-Hermes-Agent header is absent", () => {
+    expect(() => hermes.deregister({})).toThrow(MissingIdentityError);
+  });
+
   it("lets a deregistered id register again as a fresh session", () => {
     register("session-a", { description: "one" }, NOW);
-    hermes.deregister("session-a");
+    hermes.deregister({ "x-hermes-agent": "session-a" });
     register("session-a", { description: "back again" }, LATER);
     expect(hermes.getSession("session-a")).toEqual({
       session_id: "session-a",
