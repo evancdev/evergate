@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const registerSessionSchema = z.object({
+export const updateSessionSchema = z.object({
   description: z
     .string()
     .trim()

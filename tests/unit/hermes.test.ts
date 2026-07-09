@@ -17,16 +17,16 @@ beforeEach(() => {
   hermes = Hermes.create({ dbPath: ":memory:" });
 });
 
-/** Register the given session (identified by its X-Hermes-Agent header) at `at`. */
+/** Set the given session's description (identified by its X-Hermes-Agent header) at `at`. */
 function register(
   sessionId: string,
-  input: Parameters<Hermes["registerSession"]>[0],
+  input: Parameters<Hermes["setDescription"]>[0],
   at: number = NOW,
 ): void {
-  hermes.registerSession(input, { "x-hermes-agent": sessionId }, at);
+  hermes.setDescription(input, { "x-hermes-agent": sessionId }, at);
 }
 
-describe("registerSession", () => {
+describe("setDescription", () => {
   it("records a session keyed by its own session id", () => {
     register("session-a", { description: "building the api" }, NOW);
     const row = hermes.getSession("session-a");
@@ -60,6 +60,38 @@ describe("registerSession", () => {
 
   it("returns undefined for a session that never registered", () => {
     expect(hermes.getSession("nobody")).toBeUndefined();
+  });
+});
+
+describe("register (signup)", () => {
+  it("signs a session in with a placeholder description", () => {
+    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    expect(hermes.getSession("session-a")).toEqual({
+      session_id: "session-a",
+      description: "(no description yet)",
+      registered_at: new Date(NOW).toISOString(),
+      last_seen: new Date(NOW).toISOString(),
+    });
+  });
+
+  it("re-register keeps an existing description and only bumps last_seen", () => {
+    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    hermes.setDescription(
+      { description: "real work" },
+      { "x-hermes-agent": "session-a" },
+      MID,
+    );
+    hermes.register({ "x-hermes-agent": "session-a" }, LATER);
+    expect(hermes.getSession("session-a")).toEqual({
+      session_id: "session-a",
+      description: "real work",
+      registered_at: new Date(NOW).toISOString(),
+      last_seen: new Date(LATER).toISOString(),
+    });
+  });
+
+  it("throws when the X-Hermes-Agent header is absent", () => {
+    expect(() => hermes.register({})).toThrow(MissingIdentityError);
   });
 });
 
@@ -195,31 +227,31 @@ describe("deregister", () => {
   });
 });
 
-describe("registerSession identity", () => {
+describe("setDescription identity", () => {
   const input = { description: "x" };
 
   it("throws when the X-Hermes-Agent header is missing", () => {
-    expect(() => hermes.registerSession(input, {}, NOW)).toThrow(
+    expect(() => hermes.setDescription(input, {}, NOW)).toThrow(
       /X-Hermes-Agent/,
     );
-    expect(() => hermes.registerSession(input, undefined, NOW)).toThrow(
+    expect(() => hermes.setDescription(input, undefined, NOW)).toThrow(
       /X-Hermes-Agent/,
     );
   });
 
   it("throws when the header is blank", () => {
     expect(() =>
-      hermes.registerSession(input, { "x-hermes-agent": "   " }, NOW),
+      hermes.setDescription(input, { "x-hermes-agent": "   " }, NOW),
     ).toThrow();
   });
 
   it("trims the header value and keys the session on the trimmed id", () => {
-    hermes.registerSession(input, { "x-hermes-agent": "  session-a  " }, NOW);
+    hermes.setDescription(input, { "x-hermes-agent": "  session-a  " }, NOW);
     expect(hermes.getSession("session-a")?.description).toBe("x");
   });
 
   it("uses the first value when the header arrives as an array", () => {
-    hermes.registerSession(
+    hermes.setDescription(
       input,
       { "x-hermes-agent": ["session-a", "session-b"] },
       NOW,
@@ -230,7 +262,7 @@ describe("registerSession identity", () => {
 
   it("throws when the first array value is blank, ignoring later values", () => {
     expect(() =>
-      hermes.registerSession(
+      hermes.setDescription(
         input,
         { "x-hermes-agent": ["   ", "session-b"] },
         NOW,
@@ -241,7 +273,7 @@ describe("registerSession identity", () => {
 
   it("throws when the header array is empty", () => {
     expect(() =>
-      hermes.registerSession(input, { "x-hermes-agent": [] }, NOW),
+      hermes.setDescription(input, { "x-hermes-agent": [] }, NOW),
     ).toThrow();
   });
 });
@@ -253,7 +285,7 @@ describe("create with a file path", () => {
     const dbPath = join(dir, "nested", "hermes.db");
     try {
       const first = Hermes.create({ dbPath });
-      first.registerSession(
+      first.setDescription(
         { description: "one" },
         { "x-hermes-agent": "session-a" },
         NOW,

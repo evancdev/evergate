@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { upsertSchema, searchSchema, listSchema } from "@/schemas/neo4j";
 import {
-  registerSessionSchema,
+  updateSessionSchema,
   listSessionsOutputSchema,
 } from "@/schemas/hermes";
 
@@ -55,41 +55,41 @@ describe("searchSchema", () => {
   });
 });
 
-describe("registerSessionSchema", () => {
+describe("updateSessionSchema", () => {
   it("accepts a non-empty description", () => {
     expect(
-      registerSessionSchema.safeParse({ description: "building the api" })
+      updateSessionSchema.safeParse({ description: "building the api" })
         .success,
     ).toBe(true);
   });
 
   it("rejects a missing description", () => {
-    expect(registerSessionSchema.safeParse({}).success).toBe(false);
+    expect(updateSessionSchema.safeParse({}).success).toBe(false);
   });
 
   it("rejects a non-string description", () => {
-    expect(registerSessionSchema.safeParse({ description: 123 }).success).toBe(
+    expect(updateSessionSchema.safeParse({ description: 123 }).success).toBe(
       false,
     );
   });
 
   it("rejects an empty or whitespace-only description", () => {
-    expect(registerSessionSchema.safeParse({ description: "" }).success).toBe(
+    expect(updateSessionSchema.safeParse({ description: "" }).success).toBe(
       false,
     );
     expect(
-      registerSessionSchema.safeParse({ description: "   " }).success,
+      updateSessionSchema.safeParse({ description: "   " }).success,
     ).toBe(false);
   });
 
   it("trims the stored description", () => {
-    expect(registerSessionSchema.parse({ description: "  hi  " })).toEqual({
+    expect(updateSessionSchema.parse({ description: "  hi  " })).toEqual({
       description: "hi",
     });
   });
 
   it("trims before the min-length check at the boundary", () => {
-    expect(registerSessionSchema.parse({ description: " a " })).toEqual({
+    expect(updateSessionSchema.parse({ description: " a " })).toEqual({
       description: "a",
     });
   });

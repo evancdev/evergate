@@ -3,10 +3,12 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { registerSessionSchema, type Session } from "@/schemas/hermes";
+import { updateSessionSchema, type Session } from "@/schemas/hermes";
 import { type HermesConfig } from "@/types/configs";
 import { relativeTime } from "@/lib";
 import { MissingIdentityError } from "@/errors";
+
+const PLACEHOLDER_DESCRIPTION = "(no description yet)";
 
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
@@ -51,12 +53,22 @@ export class Hermes {
     );
   }
 
-  /**
-   * Register the calling session, identified by its X-Hermes-Agent header. Upsert: insert on
-   * first sight, else refresh the description and `last_seen`. Throws if the header is absent.
-   */
-  registerSession(
-    input: z.infer<typeof registerSessionSchema>,
+  /** Adds the calling session to the registry with a placeholder description. */
+  register(headers: IsomorphicHeaders | undefined, now: number = Date.now()): void {
+    const sessionId = sessionIdFrom(headers);
+    const at = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO sessions (session_id, description, registered_at, last_seen)
+         VALUES (@sessionId, @description, @now, @now)
+         ON CONFLICT(session_id) DO UPDATE SET last_seen = @now`,
+      )
+      .run({ sessionId, description: PLACEHOLDER_DESCRIPTION, now: at });
+  }
+
+  /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
+  setDescription(
+    input: z.infer<typeof updateSessionSchema>,
     headers: IsomorphicHeaders | undefined,
     now: number = Date.now(),
   ): void {
