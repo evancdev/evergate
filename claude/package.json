@@ -1,0 +1,20 @@
+{
+  "name": "evergate-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local dev plugin for the Evergate MCP server.",
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "globals": "^16.5.0"
+  }
+}
