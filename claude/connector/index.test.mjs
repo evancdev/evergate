@@ -9,15 +9,24 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const CONNECTOR = fileURLToPath(new URL("./index.mjs", import.meta.url));
 
-// A minimal stateless MCP endpoint exposing one `ping` tool; records the identity header seen.
+// A minimal stateless MCP endpoint exposing one `ping` tool; records the identity header seen
+// on /mcp and every /hermes/{register,deregister} call (as {path, id}).
 function startMockServer() {
   const seen = [];
+  const presence = [];
   const server = createServer(async (req, res) => {
+    const id = req.headers["x-hermes-agent"];
+    const hermes = req.method === "POST" && /^\/hermes\/(register|deregister)$/.exec(req.url ?? "");
+    if (hermes) {
+      presence.push({ path: hermes[1], id });
+      res.writeHead(204).end();
+      return;
+    }
     if (req.method !== "POST" || !req.url?.startsWith("/mcp")) {
       res.writeHead(404).end();
       return;
     }
-    seen.push(req.headers["x-hermes-agent"]);
+    seen.push(id);
     let raw = "";
     for await (const chunk of req) raw += chunk;
     const mcp = new McpServer({ name: "mock", version: "0.0.0" });
@@ -32,7 +41,7 @@ function startMockServer() {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const { port } = server.address();
-      resolve({ url: `http://127.0.0.1:${port}`, seen, close: () => server.close() });
+      resolve({ url: `http://127.0.0.1:${port}`, seen, presence, close: () => server.close() });
     });
   });
 }
@@ -95,6 +104,31 @@ test("falls back to a stable generated id when CLAUDE_CODE_SESSION_ID is unset",
   assert.ok(seen.length > 1, "server received multiple requests");
   assert.ok(seen.every((h) => typeof h === "string" && h.length > 0), "a non-empty id is stamped");
   assert.equal(new Set(seen).size, 1, `the same id is reused across requests, got ${[...new Set(seen)]}`);
+});
+
+// Poll until `predicate` holds or the deadline passes; returns the predicate's truthy value.
+async function waitFor(predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = predicate();
+    if (value) return value;
+    if (Date.now() > deadline) return value;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+test("registers the session on start and deregisters it on exit", async () => {
+  const client = await connect({ EVERGATE_URL: mock.url, CLAUDE_CODE_SESSION_ID: "sess-life" });
+  const registered = await waitFor(() =>
+    mock.presence.find((p) => p.path === "register" && p.id === "sess-life"),
+  );
+  assert.ok(registered, "server saw a register for the session on start");
+
+  await client.close();
+  const deregistered = await waitFor(() =>
+    mock.presence.find((p) => p.path === "deregister" && p.id === "sess-life"),
+  );
+  assert.ok(deregistered, "server saw a deregister for the session on exit");
 });
 
 // A URL nothing is listening on: bind an ephemeral port, then free it.

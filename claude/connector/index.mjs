@@ -8,6 +8,18 @@ const BASE = (process.env.EVERGATE_URL || "http://localhost:8765").replace(/\/+$
 
 const log = (msg) => process.stderr.write(`[evergate-connector] ${msg}\n`);
 
+// Presence lifecycle: announce this session on start, remove it on exit. Both are best-effort
+// and carry identity in the header, exactly like the bridged MCP requests.
+const presence = (path) =>
+  fetch(`${BASE}/hermes/${path}`, {
+    method: "POST",
+    headers: { "X-Hermes-Agent": ID },
+    signal: AbortSignal.timeout(2000),
+  }).then(
+    (res) => { if (!res.ok) log(`${path} HTTP ${res.status}`); },
+    (err) => log(`${path} ${err}`),
+  );
+
 const http = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
   requestInit: { headers: { "X-Hermes-Agent": ID } },
 });
@@ -27,17 +39,28 @@ http.onmessage = (msg) => stdio.send(msg).catch((err) => log(`->stdio ${err}`));
 http.onerror = (err) => log(`http ${err}`);
 stdio.onerror = (err) => log(`stdio ${err}`);
 
-// Tear down both sides exactly once, from whichever closes first (no mutual recursion).
+// Tear down both sides exactly once, from whichever closes first (or a signal): drop presence,
+// close both transports, then exit. The guard makes the close() cascade a no-op re-entry.
 let closing = false;
-const shutdown = () => {
+const shutdown = async () => {
   if (closing) return;
   closing = true;
-  void http.close();
-  void stdio.close();
+  await presence("deregister");
+  await http.close().catch((err) => log(`close http ${err}`));
+  await stdio.close().catch((err) => log(`close stdio ${err}`));
+  process.exit(0);
 };
-stdio.onclose = shutdown;
-http.onclose = shutdown;
+stdio.onclose = () => void shutdown();
+http.onclose = () => void shutdown();
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());
+// Claude closes the connector by ending its stdin. StdioServerTransport ignores that EOF, and
+// with nothing else holding the loop open the process would exit before we can deregister — so
+// watch stdin directly. The pending deregister fetch keeps us alive until it lands.
+process.stdin.on("end", () => void shutdown());
+process.stdin.on("close", () => void shutdown());
 
 await http.start();
 await stdio.start();
+void presence("register");
 log(`bridging session ${ID} to ${BASE}`);
