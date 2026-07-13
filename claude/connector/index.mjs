@@ -36,7 +36,13 @@ stdio.onmessage = (msg) =>
   });
 http.onmessage = (msg) => stdio.send(msg).catch((err) => log(`->stdio ${err}`));
 
-http.onerror = (err) => log(`http ${err}`);
+// The stateless server has no SSE GET stream, so the client's attempt to open one 404s; and on
+// shutdown its pending fetch aborts. Both are expected — keep them out of the log, surface the rest.
+const isBenign = (err) =>
+  err?.name === "AbortError" ||
+  /Failed to open SSE stream|operation was aborted/i.test(String(err?.message ?? err));
+
+http.onerror = (err) => { if (!isBenign(err)) log(`http ${err}`); };
 stdio.onerror = (err) => log(`stdio ${err}`);
 
 // Tear down both sides exactly once, from whichever closes first (or a signal): drop presence,
