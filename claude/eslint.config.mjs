@@ -3,7 +3,7 @@ import globals from "globals";
 
 // Standalone lint config for the plugin — plain JS, no type-aware rules yet.
 export default [
-  { ignores: ["node_modules", "dist"] },
+  { ignores: ["node_modules"] },
   js.configs.recommended,
   {
     files: ["**/*.mjs"],

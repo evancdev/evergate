@@ -7,15 +7,11 @@
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "lint": "eslint .",
-    "test": "node --test",
-    "build": "esbuild connector/index.mjs --bundle --platform=node --target=node20 --format=esm --outfile=dist/connector.mjs"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "test": "node --test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "esbuild": "^0.24.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "eslint": "^10.6.0",
     "globals": "^16.5.0"
   }
