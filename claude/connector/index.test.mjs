@@ -131,6 +131,24 @@ test("registers the session on start and deregisters it on exit", async () => {
   assert.ok(deregistered, "server saw a deregister for the session on exit");
 });
 
+test("heartbeats register on an interval so the session stays fresh", async () => {
+  const before = mock.presence.filter((p) => p.path === "register").length;
+  const client = await connect({
+    EVERGATE_URL: mock.url,
+    CLAUDE_CODE_SESSION_ID: "sess-beat",
+    EVERGATE_HEARTBEAT_MS: "120",
+  });
+  const count = () => mock.presence.filter((p) => p.path === "register" && p.id === "sess-beat").length;
+  try {
+    // Initial register plus at least two heartbeats within a short window.
+    await waitFor(() => count() >= 3, 2000);
+    assert.ok(count() >= 3, `expected repeated heartbeats, got ${count()}`);
+    assert.ok(mock.presence.length > before, "server saw the heartbeats");
+  } finally {
+    await client.close();
+  }
+});
+
 // A URL nothing is listening on: bind an ephemeral port, then free it.
 function unusedUrl() {
   return new Promise((resolve) => {

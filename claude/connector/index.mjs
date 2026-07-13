@@ -5,11 +5,11 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const ID = process.env.CLAUDE_CODE_SESSION_ID || randomUUID();
 const BASE = (process.env.EVERGATE_URL || "http://localhost:8765").replace(/\/+$/, "");
+const HEARTBEAT_MS = Number(process.env.EVERGATE_HEARTBEAT_MS) || 60_000;
 
 const log = (msg) => process.stderr.write(`[evergate-connector] ${msg}\n`);
 
-// Presence lifecycle: announce this session on start, remove it on exit. Both are best-effort
-// and carry identity in the header, exactly like the bridged MCP requests.
+// Announce/remove this session; best-effort, identity in the header like the bridged requests.
 const presence = (path) =>
   fetch(`${BASE}/hermes/${path}`, {
     method: "POST",
@@ -25,7 +25,7 @@ const http = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
 });
 const stdio = new StdioServerTransport();
 
-// Forward stdio->http; if a request (has id) fails to send, answer the caller so it doesn't hang.
+// Forward stdio→http; if a request can't be sent, answer it so the caller doesn't hang.
 stdio.onmessage = (msg) =>
   http.send(msg).catch((err) => {
     log(`->http ${err}`);
@@ -36,8 +36,7 @@ stdio.onmessage = (msg) =>
   });
 http.onmessage = (msg) => stdio.send(msg).catch((err) => log(`->stdio ${err}`));
 
-// The stateless server has no SSE GET stream, so the client's attempt to open one 404s; and on
-// shutdown its pending fetch aborts. Both are expected — keep them out of the log, surface the rest.
+// Expected noise: the stateless server 404s the SSE stream, and its fetch aborts on shutdown.
 const isBenign = (err) =>
   err?.name === "AbortError" ||
   /Failed to open SSE stream|operation was aborted/i.test(String(err?.message ?? err));
@@ -45,12 +44,12 @@ const isBenign = (err) =>
 http.onerror = (err) => { if (!isBenign(err)) log(`http ${err}`); };
 stdio.onerror = (err) => log(`stdio ${err}`);
 
-// Tear down both sides exactly once, from whichever closes first (or a signal): drop presence,
-// close both transports, then exit. The guard makes the close() cascade a no-op re-entry.
+// Drop presence, close both sides, exit — once, from whichever trigger fires first.
 let closing = false;
 const shutdown = async () => {
   if (closing) return;
   closing = true;
+  clearInterval(beat);
   await presence("deregister");
   await http.close().catch((err) => log(`close http ${err}`));
   await stdio.close().catch((err) => log(`close stdio ${err}`));
@@ -60,13 +59,14 @@ stdio.onclose = () => void shutdown();
 http.onclose = () => void shutdown();
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
-// Claude closes the connector by ending its stdin. StdioServerTransport ignores that EOF, and
-// with nothing else holding the loop open the process would exit before we can deregister — so
-// watch stdin directly. The pending deregister fetch keeps us alive until it lands.
+// Claude closes us by ending stdin; the SDK transport ignores that EOF, so watch it directly.
 process.stdin.on("end", () => void shutdown());
 process.stdin.on("close", () => void shutdown());
 
 await http.start();
 await stdio.start();
 void presence("register");
+// Heartbeat so a hard crash (kill -9) that skips deregister ages out server-side. unref so it
+// never holds the process open on its own.
+const beat = setInterval(() => void presence("register"), HEARTBEAT_MS).unref();
 log(`bridging session ${ID} to ${BASE}`);

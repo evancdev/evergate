@@ -95,6 +95,40 @@ describe("register (signup)", () => {
   });
 });
 
+describe("staleness backstop", () => {
+  const MIN = 60_000;
+
+  it("sweeps a session unseen past the cutoff when another registers", () => {
+    // ghost never deregistered (e.g. kill -9); 10 min later a live session heartbeats.
+    hermes.register({ "x-hermes-agent": "ghost" }, NOW);
+    hermes.register({ "x-hermes-agent": "live" }, NOW + 10 * MIN);
+    expect(hermes.getSession("ghost")).toBeUndefined();
+    expect(hermes.getSession("live")).toBeDefined();
+  });
+
+  it("keeps a session still seen within the cutoff", () => {
+    hermes.register({ "x-hermes-agent": "a" }, NOW);
+    hermes.register({ "x-hermes-agent": "b" }, NOW + 2 * MIN);
+    expect(hermes.getSession("a")).toBeDefined();
+    expect(hermes.getSession("b")).toBeDefined();
+  });
+
+  it("a heartbeat keeps a long-idle session from being swept", () => {
+    hermes.register({ "x-hermes-agent": "a" }, NOW);
+    hermes.register({ "x-hermes-agent": "a" }, NOW + 4 * MIN); // heartbeat bumps last_seen
+    hermes.register({ "x-hermes-agent": "b" }, NOW + 8 * MIN);
+    // a's last heartbeat (NOW+4) is within 5 min of the sweep at NOW+8, so it survives.
+    expect(hermes.getSession("a")).toBeDefined();
+  });
+
+  it("does not sweep the just-registered caller even if the table was idle", () => {
+    hermes.register({ "x-hermes-agent": "ghost" }, NOW);
+    // The same-instant re-arrival of a long-gone id refreshes last_seen, so it stays.
+    hermes.register({ "x-hermes-agent": "ghost" }, NOW + 10 * MIN);
+    expect(hermes.getSession("ghost")).toBeDefined();
+  });
+});
+
 describe("listSessions", () => {
   it("returns no sessions when the registry is empty", () => {
     expect(hermes.listSessions().sessions).toEqual([]);

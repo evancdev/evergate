@@ -10,6 +10,9 @@ import { MissingIdentityError } from "@/errors";
 
 const PLACEHOLDER_DESCRIPTION = "(no description yet)";
 
+// Unseen longer than this (connectors heartbeat ~60s) = dead; backstop for a kill -9 that skips deregister.
+const STALE_AFTER_MS = 5 * 60_000;
+
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
  * id itself. Throws if absent or blank.
@@ -53,7 +56,7 @@ export class Hermes {
     );
   }
 
-  /** Adds the calling session to the registry with a placeholder description. */
+  /** Adds the calling session to the registry with a placeholder description, and sweeps the dead. */
   register(headers: IsomorphicHeaders | undefined, now: number = Date.now()): void {
     const sessionId = sessionIdFrom(headers);
     const at = new Date(now).toISOString();
@@ -64,6 +67,13 @@ export class Hermes {
          ON CONFLICT(session_id) DO UPDATE SET last_seen = @now`,
       )
       .run({ sessionId, description: PLACEHOLDER_DESCRIPTION, now: at });
+    this.sweepStale(now);
+  }
+
+  /** Delete sessions unseen past the cutoff. Runs on the heartbeat path, keeping the read pure. */
+  private sweepStale(now: number): void {
+    const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
+    this.db.prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`).run({ cutoff });
   }
 
   /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
