@@ -77,9 +77,9 @@ describe("updateSessionSchema", () => {
     expect(updateSessionSchema.safeParse({ description: "" }).success).toBe(
       false,
     );
-    expect(
-      updateSessionSchema.safeParse({ description: "   " }).success,
-    ).toBe(false);
+    expect(updateSessionSchema.safeParse({ description: "   " }).success).toBe(
+      false,
+    );
   });
 
   it("trims the stored description", () => {

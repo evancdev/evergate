@@ -4,7 +4,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const ID = process.env.CLAUDE_CODE_SESSION_ID || randomUUID();
-const BASE = (process.env.EVERGATE_URL || "http://localhost:8765").replace(/\/+$/, "");
+const BASE = (process.env.EVERGATE_URL || "http://localhost:8765").replace(
+  /\/+$/,
+  "",
+);
 const HEARTBEAT_MS = Number(process.env.EVERGATE_HEARTBEAT_MS) || 60_000;
 
 const log = (msg) => process.stderr.write(`[evergate-connector] ${msg}\n`);
@@ -16,7 +19,9 @@ const presence = (path) =>
     headers: { "X-Hermes-Agent": ID },
     signal: AbortSignal.timeout(2000),
   }).then(
-    (res) => { if (!res.ok) log(`${path} HTTP ${res.status}`); },
+    (res) => {
+      if (!res.ok) log(`${path} HTTP ${res.status}`);
+    },
     (err) => log(`${path} ${err}`),
   );
 
@@ -31,7 +36,11 @@ stdio.onmessage = (msg) =>
     log(`->http ${err}`);
     if (msg.id != null)
       stdio
-        .send({ jsonrpc: "2.0", id: msg.id, error: { code: -32001, message: `connector: ${err}` } })
+        .send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: { code: -32001, message: `connector: ${err}` },
+        })
         .catch((e) => log(`->stdio ${e}`));
   });
 http.onmessage = (msg) => stdio.send(msg).catch((err) => log(`->stdio ${err}`));
@@ -39,9 +48,13 @@ http.onmessage = (msg) => stdio.send(msg).catch((err) => log(`->stdio ${err}`));
 // Expected noise: the stateless server 404s the SSE stream, and its fetch aborts on shutdown.
 const isBenign = (err) =>
   err?.name === "AbortError" ||
-  /Failed to open SSE stream|operation was aborted/i.test(String(err?.message ?? err));
+  /Failed to open SSE stream|operation was aborted/i.test(
+    String(err?.message ?? err),
+  );
 
-http.onerror = (err) => { if (!isBenign(err)) log(`http ${err}`); };
+http.onerror = (err) => {
+  if (!isBenign(err)) log(`http ${err}`);
+};
 stdio.onerror = (err) => log(`stdio ${err}`);
 
 // Drop presence, close both sides, exit — once, from whichever trigger fires first.

@@ -57,7 +57,10 @@ export class Hermes {
   }
 
   /** Adds the calling session to the registry with a placeholder description, and sweeps the dead. */
-  register(headers: IsomorphicHeaders | undefined, now: number = Date.now()): void {
+  register(
+    headers: IsomorphicHeaders | undefined,
+    now: number = Date.now(),
+  ): void {
     const sessionId = sessionIdFrom(headers);
     const at = new Date(now).toISOString();
     this.db
@@ -73,7 +76,9 @@ export class Hermes {
   /** Delete sessions unseen past the cutoff. Runs on the heartbeat path, keeping the read pure. */
   private sweepStale(now: number): void {
     const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
-    this.db.prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`).run({ cutoff });
+    this.db
+      .prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`)
+      .run({ cutoff });
   }
 
   /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
