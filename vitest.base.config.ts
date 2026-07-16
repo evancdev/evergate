@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /** Shared vitest config */
-export default defineConfig({
+export const baseConfig = defineConfig({
   resolve: {
     alias: {
       "@tests": fileURLToPath(new URL("./tests", import.meta.url)),
