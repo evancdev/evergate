@@ -7,11 +7,11 @@ import { updateSessionSchema, type Session } from "@/schemas/hermes";
 import { type HermesConfig } from "@/types/configs";
 import { relativeTime } from "@/lib";
 import { MissingIdentityError } from "@/errors";
+import { logger } from "@/logger";
 
 const PLACEHOLDER_DESCRIPTION = "(no description yet)";
-
-// Unseen longer than this (connectors heartbeat ~60s) = dead; backstop for a kill -9 that skips deregister.
 const STALE_AFTER_MS = 5 * 60_000;
+const SWEEP_INTERVAL_MS = 60_000;
 
 /**
  * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
@@ -26,7 +26,22 @@ function sessionIdFrom(headers: IsomorphicHeaders | undefined): string {
 
 /** Live directory of the Claude sessions running right now — SQLite, nothing durable. */
 export class Hermes {
-  private constructor(private readonly db: Database.Database) {}
+  private readonly sweeper: ReturnType<typeof setInterval>;
+
+  private constructor(private readonly db: Database.Database) {
+    // A live instance always sweeps dead sessions on its own timer, independent of client traffic.
+    this.sweeper = setInterval(() => {
+      try {
+        const cutoff = new Date(Date.now() - STALE_AFTER_MS).toISOString();
+        this.db
+          .prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`)
+          .run({ cutoff });
+      } catch (err) {
+        logger.error("Session sweep failed", err);
+      }
+    }, SWEEP_INTERVAL_MS);
+    this.sweeper.unref();
+  }
 
   /** Open the database and ensure its schema exists. */
   static create(config: HermesConfig): Hermes {
@@ -36,12 +51,18 @@ export class Hermes {
     const db = new Database(config.dbPath);
     if (config.dbPath !== ":memory:") db.pragma("journal_mode = WAL");
     const hermes = new Hermes(db);
-    hermes.ensureSchema();
+    try {
+      hermes.ensureSchema();
+    } catch (err) {
+      hermes.close(); // stop the sweeper the constructor armed
+      throw err;
+    }
     return hermes;
   }
 
-  /** Close the database. Call once on shutdown. */
+  /** Close the database and stop the sweeper. Call once on shutdown. */
   close(): void {
+    clearInterval(this.sweeper);
     this.db.close();
   }
 
@@ -56,7 +77,7 @@ export class Hermes {
     );
   }
 
-  /** Adds the calling session to the registry with a placeholder description, and sweeps the dead. */
+  /** Adds the calling session to the registry with a placeholder description. */
   register(
     headers: IsomorphicHeaders | undefined,
     now: number = Date.now(),
@@ -70,15 +91,6 @@ export class Hermes {
          ON CONFLICT(session_id) DO UPDATE SET last_seen = @now`,
       )
       .run({ sessionId, description: PLACEHOLDER_DESCRIPTION, now: at });
-    this.sweepStale(now);
-  }
-
-  /** Delete sessions unseen past the cutoff. Runs on the heartbeat path, keeping the read pure. */
-  private sweepStale(now: number): void {
-    const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
-    this.db
-      .prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`)
-      .run({ cutoff });
   }
 
   /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
@@ -99,14 +111,18 @@ export class Hermes {
       .run({ sessionId, description: input.description, now: at });
   }
 
-  /** Every registered session, most recently seen first. */
+  /** The live sessions — seen within the cutoff — most recently seen first. Stale rows are hidden. */
   listSessions(now: number = Date.now()) {
+    const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
     const rows = this.db
       .prepare(
         `SELECT session_id, description, last_seen
-           FROM sessions ORDER BY last_seen DESC`,
+           FROM sessions WHERE last_seen >= @cutoff ORDER BY last_seen DESC`,
       )
-      .all() as Pick<Session, "session_id" | "description" | "last_seen">[];
+      .all({ cutoff }) as Pick<
+      Session,
+      "session_id" | "description" | "last_seen"
+    >[];
     return {
       sessions: rows.map((s) => ({
         session_id: s.session_id,
