@@ -3,7 +3,8 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { updateSessionSchema, type Session } from "@/schemas/hermes";
+import { updateSessionSchema, sendMessageSchema } from "@/schemas/hermes";
+import { type Session, type Message } from "@/types/database";
 import { type HermesConfig } from "@/types/configs";
 import { relativeTime } from "@/lib";
 import { MissingIdentityError } from "@/errors";
@@ -29,13 +30,18 @@ export class Hermes {
   private readonly sweeper: ReturnType<typeof setInterval>;
 
   private constructor(private readonly db: Database.Database) {
-    // A live instance always sweeps dead sessions on its own timer, independent of client traffic.
     this.sweeper = setInterval(() => {
       try {
         const cutoff = new Date(Date.now() - STALE_AFTER_MS).toISOString();
         this.db
           .prepare(`DELETE FROM sessions WHERE last_seen < @cutoff`)
           .run({ cutoff });
+        // Inboxes are live-only: drop any message whose recipient is no longer a live session.
+        this.db
+          .prepare(
+            `DELETE FROM messages WHERE recipient_id NOT IN (SELECT session_id FROM sessions)`,
+          )
+          .run();
       } catch (err) {
         logger.error("Session sweep failed", err);
       }
@@ -54,7 +60,7 @@ export class Hermes {
     try {
       hermes.ensureSchema();
     } catch (err) {
-      hermes.close(); // stop the sweeper the constructor armed
+      hermes.close();
       throw err;
     }
     return hermes;
@@ -73,6 +79,13 @@ export class Hermes {
          description   TEXT NOT NULL,
          registered_at TEXT NOT NULL,
          last_seen     TEXT NOT NULL
+       );
+       CREATE TABLE IF NOT EXISTS messages (
+         id           INTEGER PRIMARY KEY AUTOINCREMENT,
+         recipient_id TEXT NOT NULL,
+         sender_id    TEXT NOT NULL,
+         message      TEXT NOT NULL,
+         created_at   TEXT NOT NULL
        )`,
     );
   }
@@ -132,12 +145,90 @@ export class Hermes {
     };
   }
 
-  /** Remove the calling session, identified by its X-Hermes-Agent header. Unknown id is a no-op. */
+  /** Remove the calling session and its inbox, identified by its X-Hermes-Agent header. Unknown id is a no-op. */
   deregister(headers: IsomorphicHeaders | undefined): void {
     const sessionId = sessionIdFrom(headers);
     this.db
       .prepare(`DELETE FROM sessions WHERE session_id = @sessionId`)
       .run({ sessionId });
+    this.db
+      .prepare(`DELETE FROM messages WHERE recipient_id = @sessionId`)
+      .run({ sessionId });
+  }
+
+  /** Send the message to the named live session. Returns 1 if delivered, 0 if that session isn't live. */
+  sendMessage(
+    input: z.infer<typeof sendMessageSchema>,
+    headers: IsomorphicHeaders | undefined,
+    now: number = Date.now(),
+  ): { delivered: number } {
+    const senderId = sessionIdFrom(headers);
+    const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
+    const recipient = this.db
+      .prepare(
+        `SELECT session_id FROM sessions WHERE session_id = @to AND last_seen >= @cutoff`,
+      )
+      .get({ to: input.to, cutoff });
+    if (!recipient) return { delivered: 0 };
+    const at = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO messages (recipient_id, sender_id, message, created_at)
+         VALUES (@to, @senderId, @message, @at)`,
+      )
+      .run({ to: input.to, senderId, message: input.message, at });
+    return { delivered: 1 };
+  }
+
+  /** The calling session's waiting messages, without clearing them. */
+  peekMessages(
+    headers: IsomorphicHeaders | undefined,
+    now: number = Date.now(),
+  ) {
+    const recipientId = sessionIdFrom(headers);
+    const rows = this.db
+      .prepare(
+        `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @recipientId ORDER BY id`,
+      )
+      .all({ recipientId }) as Pick<
+      Message,
+      "sender_id" | "message" | "created_at"
+    >[];
+    return { messages: this.formatMessages(rows, now) };
+  }
+
+  /** The calling session's waiting messages; clears them once returned (delivered). */
+  checkMessages(
+    headers: IsomorphicHeaders | undefined,
+    now: number = Date.now(),
+  ) {
+    const recipientId = sessionIdFrom(headers);
+    const drain = this.db.transaction(() => {
+      const rows = this.db
+        .prepare(
+          `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @recipientId ORDER BY id`,
+        )
+        .all({ recipientId }) as Pick<
+        Message,
+        "sender_id" | "message" | "created_at"
+      >[];
+      this.db
+        .prepare(`DELETE FROM messages WHERE recipient_id = @recipientId`)
+        .run({ recipientId });
+      return rows;
+    });
+    return { messages: this.formatMessages(drain(), now) };
+  }
+
+  private formatMessages(
+    rows: Pick<Message, "sender_id" | "message" | "created_at">[],
+    now: number,
+  ) {
+    return rows.map((m) => ({
+      from: m.sender_id,
+      message: m.message,
+      at: relativeTime(m.created_at, now) ?? m.created_at,
+    }));
   }
 
   /** The session with this id, or undefined if none is present. */

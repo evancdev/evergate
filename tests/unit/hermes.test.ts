@@ -127,9 +127,11 @@ describe("listSessions", () => {
   it("produces output conforming to the schema, without registered_at", () => {
     register("session-a", { description: "one" }, NOW);
     const result = hermes.listSessions(NOW);
-    expect(z.object(listSessionsOutputSchema).safeParse(result).success).toBe(
-      true,
-    );
+    // The tool adds `messages`; here we check the sessions half conforms.
+    expect(
+      z.object(listSessionsOutputSchema).safeParse({ ...result, messages: [] })
+        .success,
+    ).toBe(true);
     expect(result.sessions[0]).not.toHaveProperty("registered_at");
   });
 
@@ -388,6 +390,119 @@ describe("sweeper (server-owned expiry)", () => {
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("messaging", () => {
+  // The methods default `now` to real Date.now(), so pass NOW to line up with the fixtures' cutoff.
+  const send = (
+    from: string,
+    input: Parameters<Hermes["sendMessage"]>[0],
+    at: number = NOW,
+  ) => hermes.sendMessage(input, { "x-hermes-agent": from }, at);
+  const inbox = (sessionId: string, at: number = NOW) =>
+    hermes.checkMessages({ "x-hermes-agent": sessionId }, at);
+  const peek = (sessionId: string, at: number = NOW) =>
+    hermes.peekMessages({ "x-hermes-agent": sessionId }, at);
+
+  it("delivers a direct message to the named live session", () => {
+    register("alice", { description: "a" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    expect(send("alice", { to: "bob", message: "ping" })).toEqual({
+      delivered: 1,
+    });
+    expect(inbox("bob").messages).toEqual([
+      { from: "alice", message: "ping", at: "just now" },
+    ]);
+  });
+
+  it("check_messages clears the inbox; a second check is empty", () => {
+    register("alice", { description: "a" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    send("alice", { to: "bob", message: "one" });
+    expect(inbox("bob").messages).toHaveLength(1);
+    expect(inbox("bob").messages).toEqual([]);
+  });
+
+  it("peek shows waiting messages without clearing them", () => {
+    register("alice", { description: "a" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    send("alice", { to: "bob", message: "still here" });
+    expect(peek("bob").messages.map((m) => m.message)).toEqual(["still here"]);
+    expect(peek("bob").messages.map((m) => m.message)).toEqual(["still here"]);
+    // Still drainable after peeking.
+    expect(inbox("bob").messages).toHaveLength(1);
+  });
+
+  it("keeps messages in send order, oldest first", () => {
+    register("alice", { description: "a" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    send("alice", { to: "bob", message: "first" }, NOW);
+    send("alice", { to: "bob", message: "second" }, NOW + 1000);
+    expect(inbox("bob", NOW + 2000).messages.map((m) => m.message)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("delivers nothing when the recipient is not live", () => {
+    register("alice", { description: "a" }, NOW);
+    expect(send("alice", { to: "ghost", message: "anyone?" })).toEqual({
+      delivered: 0,
+    });
+    expect(peek("ghost").messages).toEqual([]);
+  });
+
+  it("delivers nothing to a recipient that has gone stale", () => {
+    register("bob", { description: "b" }, NOW);
+    register("alice", { description: "a" }, NOW + 10 * 60_000);
+    // bob was last seen 10 min ago — past the cutoff at send time.
+    expect(
+      send("alice", { to: "bob", message: "late" }, NOW + 10 * 60_000),
+    ).toEqual({ delivered: 0 });
+  });
+
+  it("drops the inbox when the recipient deregisters", () => {
+    register("alice", { description: "a" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    send("alice", { to: "bob", message: "bye soon" });
+    hermes.deregister({ "x-hermes-agent": "bob" });
+    expect(peek("bob").messages).toEqual([]);
+  });
+
+  it("requires identity to send or read", () => {
+    expect(() => hermes.sendMessage({ to: "bob", message: "x" }, {}, NOW)).toThrow(
+      MissingIdentityError,
+    );
+    expect(() => hermes.checkMessages({}, NOW)).toThrow(MissingIdentityError);
+    expect(() => hermes.peekMessages({}, NOW)).toThrow(MissingIdentityError);
+  });
+
+  it("the sweeper clears messages left to a swept recipient", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(NOW);
+      const h = Hermes.create({ dbPath: ":memory:" });
+      h.register({ "x-hermes-agent": "alice" }, NOW);
+      h.register({ "x-hermes-agent": "bob" }, NOW);
+      h.sendMessage(
+        { to: "bob", message: "waiting" },
+        { "x-hermes-agent": "alice" },
+        NOW,
+      );
+      expect(
+        h.peekMessages({ "x-hermes-agent": "bob" }, NOW).messages,
+      ).toHaveLength(1);
+      // Everyone goes stale; the sweeper deletes the sessions and the orphaned inbox.
+      vi.setSystemTime(NOW + 10 * 60_000);
+      vi.advanceTimersByTime(60_000);
+      expect(
+        h.peekMessages({ "x-hermes-agent": "bob" }, NOW + 10 * 60_000).messages,
+      ).toEqual([]);
+      h.close();
+    } finally {
       vi.useRealTimers();
     }
   });

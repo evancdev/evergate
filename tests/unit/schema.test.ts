@@ -104,22 +104,38 @@ describe("listSessionsOutputSchema", () => {
         sessions: [
           { session_id: "s1", description: "one", last_seen: "just now" },
         ],
+        messages: [{ from: "s2", message: "hi", at: "just now" }],
       }).success,
     ).toBe(true);
   });
 
-  it("accepts an empty sessions array", () => {
-    expect(schema.safeParse({ sessions: [] }).success).toBe(true);
+  it("accepts empty sessions and messages arrays", () => {
+    expect(schema.safeParse({ sessions: [], messages: [] }).success).toBe(true);
   });
 
   it("rejects a session missing a required field", () => {
     expect(
-      schema.safeParse({ sessions: [{ session_id: "s1", last_seen: "x" }] })
-        .success,
+      schema.safeParse({
+        sessions: [{ session_id: "s1", last_seen: "x" }],
+        messages: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a message missing a required field", () => {
+    expect(
+      schema.safeParse({
+        sessions: [],
+        messages: [{ from: "s2", message: "hi" }],
+      }).success,
     ).toBe(false);
   });
 
   it("rejects a missing sessions array", () => {
-    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ messages: [] }).success).toBe(false);
+  });
+
+  it("rejects a missing messages array", () => {
+    expect(schema.safeParse({ sessions: [] }).success).toBe(false);
   });
 });
