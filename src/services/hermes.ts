@@ -3,7 +3,11 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { updateSessionSchema, sendMessageSchema } from "@/schemas/hermes";
+import {
+  updateSessionSchema,
+  sendMessageSchema,
+  setStatusSchema,
+} from "@/schemas/hermes";
 import { type Session, type Message } from "@/types/database";
 import { type HermesConfig } from "@/types/configs";
 import { relativeTime } from "@/lib";
@@ -78,7 +82,8 @@ export class Hermes {
          session_id    TEXT PRIMARY KEY,
          description   TEXT NOT NULL,
          registered_at TEXT NOT NULL,
-         last_seen     TEXT NOT NULL
+         last_seen     TEXT NOT NULL,
+         status        TEXT NOT NULL DEFAULT 'idle'
        );
        CREATE TABLE IF NOT EXISTS messages (
          id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,23 +129,46 @@ export class Hermes {
       .run({ sessionId, description: input.description, now: at });
   }
 
+  /** Mark the calling session busy or idle and bump `last_seen`. Upserts if not signed in yet. */
+  setStatus(
+    input: z.infer<typeof setStatusSchema>,
+    headers: IsomorphicHeaders | undefined,
+    now: number = Date.now(),
+  ): void {
+    const sessionId = sessionIdFrom(headers);
+    const at = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO sessions (session_id, description, registered_at, last_seen, status)
+         VALUES (@sessionId, @description, @now, @now, @status)
+         ON CONFLICT(session_id) DO UPDATE SET status = @status, last_seen = @now`,
+      )
+      .run({
+        sessionId,
+        description: PLACEHOLDER_DESCRIPTION,
+        now: at,
+        status: input.status,
+      });
+  }
+
   /** The live sessions — seen within the cutoff — most recently seen first. Stale rows are hidden. */
   listSessions(now: number = Date.now()) {
     const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
     const rows = this.db
       .prepare(
-        `SELECT session_id, description, last_seen
+        `SELECT session_id, description, last_seen, status
            FROM sessions WHERE last_seen >= @cutoff ORDER BY last_seen DESC`,
       )
       .all({ cutoff }) as Pick<
       Session,
-      "session_id" | "description" | "last_seen"
+      "session_id" | "description" | "last_seen" | "status"
     >[];
     return {
       sessions: rows.map((s) => ({
         session_id: s.session_id,
         description: s.description,
         last_seen: relativeTime(s.last_seen, now) ?? s.last_seen,
+        status: s.status,
       })),
     };
   }
@@ -180,7 +208,7 @@ export class Hermes {
     return { delivered: 1 };
   }
 
-  /** The calling session's waiting messages, without clearing them. */
+  /** Return the calling session's waiting messages without clearing them. */
   peekMessages(
     headers: IsomorphicHeaders | undefined,
     now: number = Date.now(),
@@ -197,7 +225,7 @@ export class Hermes {
     return { messages: this.formatMessages(rows, now) };
   }
 
-  /** The calling session's waiting messages; clears them once returned (delivered). */
+  /** Return and clear the calling session's waiting messages. */
   checkMessages(
     headers: IsomorphicHeaders | undefined,
     now: number = Date.now(),
@@ -220,6 +248,18 @@ export class Hermes {
     return { messages: this.formatMessages(drain(), now) };
   }
 
+  /** Return and clear the calling session's waiting messages when idle; none if busy. */
+  pullIfIdle(headers: IsomorphicHeaders | undefined, now: number = Date.now()) {
+    const sessionId = sessionIdFrom(headers);
+    const idle = this.db
+      .prepare(
+        `SELECT 1 FROM sessions WHERE session_id = @sessionId AND status = 'idle'`,
+      )
+      .get({ sessionId });
+    if (!idle) return { messages: [] };
+    return this.checkMessages(headers, now);
+  }
+
   private formatMessages(
     rows: Pick<Message, "sender_id" | "message" | "created_at">[],
     now: number,
@@ -235,7 +275,7 @@ export class Hermes {
   getSession(sessionId: string): Session | undefined {
     return this.db
       .prepare(
-        `SELECT session_id, description, registered_at, last_seen
+        `SELECT session_id, description, registered_at, last_seen, status
            FROM sessions WHERE session_id = @sessionId`,
       )
       .get({ sessionId }) as Session | undefined;

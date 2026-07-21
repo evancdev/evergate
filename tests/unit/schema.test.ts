@@ -3,6 +3,7 @@ import { z } from "zod";
 import { upsertSchema, searchSchema, listSchema } from "@/schemas/neo4j";
 import {
   updateSessionSchema,
+  setStatusSchema,
   listSessionsOutputSchema,
 } from "@/schemas/hermes";
 
@@ -95,6 +96,20 @@ describe("updateSessionSchema", () => {
   });
 });
 
+describe("setStatusSchema", () => {
+  it("accepts busy and idle", () => {
+    expect(setStatusSchema.safeParse({ status: "busy" }).success).toBe(true);
+    expect(setStatusSchema.safeParse({ status: "idle" }).success).toBe(true);
+  });
+
+  it("rejects any other status and a missing one", () => {
+    expect(setStatusSchema.safeParse({ status: "working" }).success).toBe(
+      false,
+    );
+    expect(setStatusSchema.safeParse({}).success).toBe(false);
+  });
+});
+
 describe("listSessionsOutputSchema", () => {
   const schema = z.object(listSessionsOutputSchema);
 
@@ -102,7 +117,12 @@ describe("listSessionsOutputSchema", () => {
     expect(
       schema.safeParse({
         sessions: [
-          { session_id: "s1", description: "one", last_seen: "just now" },
+          {
+            session_id: "s1",
+            description: "one",
+            last_seen: "just now",
+            status: "idle",
+          },
         ],
         messages: [{ from: "s2", message: "hi", at: "just now" }],
       }).success,

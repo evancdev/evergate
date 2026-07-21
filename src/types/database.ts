@@ -5,6 +5,7 @@ export interface Session {
   description: string;
   registered_at: string;
   last_seen: string;
+  status: string;
 }
 
 export interface Message {

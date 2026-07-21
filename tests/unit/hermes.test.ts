@@ -39,6 +39,7 @@ describe("setDescription", () => {
       description: "building the api",
       registered_at: new Date(NOW).toISOString(),
       last_seen: new Date(NOW).toISOString(),
+      status: "idle",
     });
   });
 
@@ -58,6 +59,7 @@ describe("setDescription", () => {
       description: "v2",
       registered_at: new Date(NOW).toISOString(),
       last_seen: new Date(LATER).toISOString(),
+      status: "idle",
     });
     expect(hermes.listSessions(LATER).sessions).toHaveLength(1);
   });
@@ -75,6 +77,7 @@ describe("register (signup)", () => {
       description: "(no description yet)",
       registered_at: new Date(NOW).toISOString(),
       last_seen: new Date(NOW).toISOString(),
+      status: "idle",
     });
   });
 
@@ -91,6 +94,7 @@ describe("register (signup)", () => {
       description: "real work",
       registered_at: new Date(NOW).toISOString(),
       last_seen: new Date(LATER).toISOString(),
+      status: "idle",
     });
   });
 
@@ -142,6 +146,7 @@ describe("listSessions", () => {
         session_id: "session-a",
         description: "building the api",
         last_seen: "just now",
+        status: "idle",
       },
     ]);
   });
@@ -155,11 +160,13 @@ describe("listSessions", () => {
         session_id: "session-newer",
         description: "the newer one",
         last_seen: "just now",
+        status: "idle",
       },
       {
         session_id: "session-older",
         description: "the older one",
         last_seen: "3 minutes ago",
+        status: "idle",
       },
     ]);
   });
@@ -171,6 +178,7 @@ describe("listSessions", () => {
         session_id: "session-a",
         description: "one",
         last_seen: "4 minutes ago",
+        status: "idle",
       },
     ]);
   });
@@ -198,8 +206,71 @@ describe("listSessions", () => {
         session_id: "session-a",
         description: "one",
         last_seen: new Date(LATER).toISOString(),
+        status: "idle",
       },
     ]);
+  });
+
+  it("surfaces a busy status, not just idle", () => {
+    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "session-a" }, NOW);
+    expect(hermes.listSessions(NOW).sessions[0]?.status).toBe("busy");
+  });
+});
+
+describe("status", () => {
+  it("defaults to idle and surfaces in listSessions", () => {
+    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    expect(hermes.listSessions(NOW).sessions[0]?.status).toBe("idle");
+  });
+
+  it("flips to busy and back to idle, bumping last_seen", () => {
+    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    hermes.setStatus(
+      { status: "busy" },
+      { "x-hermes-agent": "session-a" },
+      MID,
+    );
+    expect(hermes.getSession("session-a")?.status).toBe("busy");
+    expect(hermes.getSession("session-a")?.last_seen).toBe(
+      new Date(MID).toISOString(),
+    );
+    hermes.setStatus(
+      { status: "idle" },
+      { "x-hermes-agent": "session-a" },
+      LATER,
+    );
+    expect(hermes.getSession("session-a")?.status).toBe("idle");
+  });
+
+  it("upserts a session that sets status before registering", () => {
+    hermes.setStatus(
+      { status: "busy" },
+      { "x-hermes-agent": "session-a" },
+      NOW,
+    );
+    expect(hermes.getSession("session-a")).toEqual({
+      session_id: "session-a",
+      description: "(no description yet)",
+      registered_at: new Date(NOW).toISOString(),
+      last_seen: new Date(NOW).toISOString(),
+      status: "busy",
+    });
+  });
+
+  it("preserves an existing session's description when flipping status", () => {
+    register("session-a", { description: "real work" }, NOW);
+    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "session-a" }, MID);
+    const row = hermes.getSession("session-a");
+    expect(row?.description).toBe("real work");
+    expect(row?.status).toBe("busy");
+    expect(row?.registered_at).toBe(new Date(NOW).toISOString());
+  });
+
+  it("throws when the X-Hermes-Agent header is absent", () => {
+    expect(() => hermes.setStatus({ status: "busy" }, {}, NOW)).toThrow(
+      MissingIdentityError,
+    );
   });
 });
 
@@ -243,6 +314,7 @@ describe("deregister", () => {
       description: "back again",
       registered_at: new Date(LATER).toISOString(),
       last_seen: new Date(LATER).toISOString(),
+      status: "idle",
     });
   });
 });
@@ -418,7 +490,7 @@ describe("messaging", () => {
     ]);
   });
 
-  it("check_messages clears the inbox; a second check is empty", () => {
+  it("draining the inbox clears it; a second drain is empty", () => {
     register("alice", { description: "a" }, NOW);
     register("bob", { description: "b" }, NOW);
     send("alice", { to: "bob", message: "one" });
@@ -464,6 +536,39 @@ describe("messaging", () => {
     ).toEqual({ delivered: 0 });
   });
 
+  it("lets a session send a message to itself", () => {
+    register("alice", { description: "a" }, NOW);
+    expect(send("alice", { to: "alice", message: "note to self" })).toEqual({
+      delivered: 1,
+    });
+    expect(inbox("alice").messages).toEqual([
+      { from: "alice", message: "note to self", at: "just now" },
+    ]);
+  });
+
+  it("delivers even when the sender isn't registered — only the recipient must be live", () => {
+    register("bob", { description: "b" }, NOW);
+    // alice never registered, but her header identifies her as the sender.
+    expect(send("alice", { to: "bob", message: "hi" })).toEqual({
+      delivered: 1,
+    });
+    expect(inbox("bob").messages).toEqual([
+      { from: "alice", message: "hi", at: "just now" },
+    ]);
+  });
+
+  it("attributes each message to its own sender", () => {
+    register("alice", { description: "a" }, NOW);
+    register("carol", { description: "c" }, NOW);
+    register("bob", { description: "b" }, NOW);
+    send("alice", { to: "bob", message: "from a" }, NOW);
+    send("carol", { to: "bob", message: "from c" }, NOW + 1000);
+    expect(inbox("bob", NOW + 2000).messages).toEqual([
+      { from: "alice", message: "from a", at: "just now" },
+      { from: "carol", message: "from c", at: "just now" },
+    ]);
+  });
+
   it("drops the inbox when the recipient deregisters", () => {
     register("alice", { description: "a" }, NOW);
     register("bob", { description: "b" }, NOW);
@@ -473,11 +578,58 @@ describe("messaging", () => {
   });
 
   it("requires identity to send or read", () => {
-    expect(() => hermes.sendMessage({ to: "bob", message: "x" }, {}, NOW)).toThrow(
-      MissingIdentityError,
-    );
+    expect(() =>
+      hermes.sendMessage({ to: "bob", message: "x" }, {}, NOW),
+    ).toThrow(MissingIdentityError);
     expect(() => hermes.checkMessages({}, NOW)).toThrow(MissingIdentityError);
     expect(() => hermes.peekMessages({}, NOW)).toThrow(MissingIdentityError);
+  });
+
+  it("pullIfIdle drains waiting messages when the recipient is idle", () => {
+    register("alice", { description: "a" }, NOW);
+    hermes.register({ "x-hermes-agent": "bob" }, NOW); // idle by default
+    send("alice", { to: "bob", message: "wake up" });
+    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual([
+      { from: "alice", message: "wake up", at: "just now" },
+    ]);
+    // drained on read, so a second pull is empty
+    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual(
+      [],
+    );
+  });
+
+  it("pullIfIdle delivers nothing while the recipient is busy, leaving the inbox intact", () => {
+    register("alice", { description: "a" }, NOW);
+    hermes.register({ "x-hermes-agent": "bob" }, NOW);
+    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "bob" }, NOW);
+    send("alice", { to: "bob", message: "later" });
+    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual(
+      [],
+    );
+    // still waiting — the Stop hook delivers these at turn-end
+    expect(peek("bob").messages).toHaveLength(1);
+  });
+
+  it("checkMessages drains even while busy — the Stop-hook path ignores status", () => {
+    register("alice", { description: "a" }, NOW);
+    hermes.register({ "x-hermes-agent": "bob" }, NOW);
+    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "bob" }, NOW);
+    send("alice", { to: "bob", message: "turn-end" });
+    // unlike pullIfIdle, checkMessages drains regardless of status
+    expect(inbox("bob").messages).toEqual([
+      { from: "alice", message: "turn-end", at: "just now" },
+    ]);
+    expect(peek("bob").messages).toEqual([]); // and clears on read
+  });
+
+  it("pullIfIdle returns nothing for an unregistered session", () => {
+    expect(
+      hermes.pullIfIdle({ "x-hermes-agent": "ghost" }, NOW).messages,
+    ).toEqual([]);
+  });
+
+  it("pullIfIdle requires identity", () => {
+    expect(() => hermes.pullIfIdle({}, NOW)).toThrow(MissingIdentityError);
   });
 
   it("the sweeper clears messages left to a swept recipient", () => {

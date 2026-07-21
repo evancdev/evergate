@@ -13,10 +13,15 @@ export const sendMessageSchema = z.object({
   message: z.string().trim().min(1),
 });
 
+export const setStatusSchema = z.object({
+  status: z.enum(["busy", "idle"]),
+});
+
 const sessionSummarySchema = z.object({
   session_id: z.string(),
   description: z.string(),
   last_seen: z.string().describe("How long ago the session checked in"),
+  status: z.string().describe("Busy or idle right now"),
 });
 
 const messageSchema = z.object({
@@ -28,8 +33,4 @@ const messageSchema = z.object({
 export const listSessionsOutputSchema = {
   sessions: z.array(sessionSummarySchema),
   messages: z.array(messageSchema).describe("Messages waiting for you"),
-};
-
-export const checkMessagesOutputSchema = {
-  messages: z.array(messageSchema),
 };

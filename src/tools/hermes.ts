@@ -5,7 +5,6 @@ import {
   updateSessionSchema,
   sendMessageSchema,
   listSessionsOutputSchema,
-  checkMessagesOutputSchema,
 } from "@/schemas/hermes";
 import { logger } from "@/logger";
 import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
@@ -54,7 +53,7 @@ export function registerHermesTools(server: McpServer): void {
     "send_message",
     {
       description:
-        "Send a message to another live session — set `to` to its session id from list_sessions. The recipient reads it next time it checks messages or lists sessions.",
+        "Send a message to another live session.",
       inputSchema: sendMessageSchema,
     },
     (input, extra): CallToolResult => {
@@ -70,25 +69,6 @@ export function registerHermesTools(server: McpServer): void {
         );
       } catch (err) {
         logger.error("send_message failed", err, input);
-        return FAILURE_RESPONSE;
-      }
-    },
-  );
-
-  server.registerTool(
-    "check_messages",
-    {
-      description:
-        "Fetch and clear the messages other sessions have sent you, each with its sender and text.",
-      outputSchema: checkMessagesOutputSchema,
-    },
-    (extra): CallToolResult => {
-      try {
-        return formatStructured(
-          services.hermes.checkMessages(extra.requestInfo?.headers),
-        );
-      } catch (err) {
-        logger.error("check_messages failed", err);
         return FAILURE_RESPONSE;
       }
     },
