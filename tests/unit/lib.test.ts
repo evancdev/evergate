@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { normalizeText, relativeTime } from "@/lib";
+import { normalizeText, relativeTime, getSessionId } from "@/lib";
+import { MissingIdentityError } from "@/errors";
 
 const NOW = Date.parse("2026-06-30T12:00:00.000Z");
 const SEC = 1000;
@@ -60,5 +61,46 @@ describe("normalizeText", () => {
   it("yields null for blank or absent input", () => {
     expect(normalizeText("   ")).toBeNull();
     expect(normalizeText(undefined)).toBeNull();
+  });
+});
+
+describe("getSessionId", () => {
+  it("returns the X-Hermes-Agent header value", () => {
+    expect(getSessionId({ "x-hermes-agent": "session-a" })).toBe("session-a");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(getSessionId({ "x-hermes-agent": "  session-a  " })).toBe(
+      "session-a",
+    );
+  });
+
+  it("uses the first value when the header arrives as an array", () => {
+    expect(getSessionId({ "x-hermes-agent": ["session-a", "session-b"] })).toBe(
+      "session-a",
+    );
+  });
+
+  it("throws when the header is absent", () => {
+    expect(() => getSessionId({})).toThrow(MissingIdentityError);
+    expect(() => getSessionId(undefined)).toThrow(MissingIdentityError);
+  });
+
+  it("throws when the header is blank", () => {
+    expect(() => getSessionId({ "x-hermes-agent": "   " })).toThrow(
+      MissingIdentityError,
+    );
+  });
+
+  it("throws when the first array value is blank, ignoring later values", () => {
+    expect(() =>
+      getSessionId({ "x-hermes-agent": ["   ", "session-b"] }),
+    ).toThrow(MissingIdentityError);
+  });
+
+  it("throws when the header array is empty", () => {
+    expect(() => getSessionId({ "x-hermes-agent": [] })).toThrow(
+      MissingIdentityError,
+    );
   });
 });

@@ -6,6 +6,7 @@ import {
   sendMessageSchema,
   listSessionsOutputSchema,
 } from "@/schemas/hermes";
+import { getSessionId } from "@/lib";
 import { logger } from "@/logger";
 import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
 
@@ -19,7 +20,10 @@ export function registerHermesTools(server: McpServer): void {
     },
     (input, extra): CallToolResult => {
       try {
-        services.hermes.setDescription(input, extra.requestInfo?.headers);
+        services.hermes.setDescription(
+          input,
+          getSessionId(extra.requestInfo?.headers),
+        );
         return formatText("description updated");
       } catch (err) {
         logger.error("update_session failed", err, input);
@@ -39,7 +43,7 @@ export function registerHermesTools(server: McpServer): void {
       try {
         const { sessions } = services.hermes.listSessions();
         const { messages } = services.hermes.peekMessages(
-          extra.requestInfo?.headers,
+          getSessionId(extra.requestInfo?.headers),
         );
         return formatStructured({ sessions, messages });
       } catch (err) {
@@ -60,7 +64,7 @@ export function registerHermesTools(server: McpServer): void {
       try {
         const { delivered } = services.hermes.sendMessage(
           input,
-          extra.requestInfo?.headers,
+          getSessionId(extra.requestInfo?.headers),
         );
         return formatText(
           delivered > 0

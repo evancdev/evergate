@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { Hermes } from "@/services/hermes";
-import { MissingIdentityError } from "@/errors";
 import { listSessionsOutputSchema } from "@/schemas/hermes";
 import { logger } from "@/logger";
 
@@ -21,13 +20,13 @@ beforeEach(() => {
 // close() stops the sweeper's interval; idempotent, so tests that close early are fine.
 afterEach(() => hermes.close());
 
-/** Set the given session's description (identified by its X-Hermes-Agent header) at `at`. */
+/** Set the given session's description at `at`. */
 function register(
   sessionId: string,
   input: Parameters<Hermes["setDescription"]>[0],
   at: number = NOW,
 ): void {
-  hermes.setDescription(input, { "x-hermes-agent": sessionId }, at);
+  hermes.setDescription(input, sessionId, at);
 }
 
 describe("setDescription", () => {
@@ -71,7 +70,7 @@ describe("setDescription", () => {
 
 describe("register (signup)", () => {
   it("signs a session in with a placeholder description", () => {
-    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    hermes.register("session-a", NOW);
     expect(hermes.getSession("session-a")).toEqual({
       session_id: "session-a",
       description: "(no description yet)",
@@ -82,13 +81,9 @@ describe("register (signup)", () => {
   });
 
   it("re-register keeps an existing description and only bumps last_seen", () => {
-    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
-    hermes.setDescription(
-      { description: "real work" },
-      { "x-hermes-agent": "session-a" },
-      MID,
-    );
-    hermes.register({ "x-hermes-agent": "session-a" }, LATER);
+    hermes.register("session-a", NOW);
+    hermes.setDescription({ description: "real work" }, "session-a", MID);
+    hermes.register("session-a", LATER);
     expect(hermes.getSession("session-a")).toEqual({
       session_id: "session-a",
       description: "real work",
@@ -96,10 +91,6 @@ describe("register (signup)", () => {
       last_seen: new Date(LATER).toISOString(),
       status: "idle",
     });
-  });
-
-  it("throws when the X-Hermes-Agent header is absent", () => {
-    expect(() => hermes.register({})).toThrow(MissingIdentityError);
   });
 });
 
@@ -212,43 +203,31 @@ describe("listSessions", () => {
   });
 
   it("surfaces a busy status, not just idle", () => {
-    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
-    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "session-a" }, NOW);
+    hermes.register("session-a", NOW);
+    hermes.setStatus({ status: "busy" }, "session-a", NOW);
     expect(hermes.listSessions(NOW).sessions[0]?.status).toBe("busy");
   });
 });
 
 describe("status", () => {
   it("defaults to idle and surfaces in listSessions", () => {
-    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
+    hermes.register("session-a", NOW);
     expect(hermes.listSessions(NOW).sessions[0]?.status).toBe("idle");
   });
 
   it("flips to busy and back to idle, bumping last_seen", () => {
-    hermes.register({ "x-hermes-agent": "session-a" }, NOW);
-    hermes.setStatus(
-      { status: "busy" },
-      { "x-hermes-agent": "session-a" },
-      MID,
-    );
+    hermes.register("session-a", NOW);
+    hermes.setStatus({ status: "busy" }, "session-a", MID);
     expect(hermes.getSession("session-a")?.status).toBe("busy");
     expect(hermes.getSession("session-a")?.last_seen).toBe(
       new Date(MID).toISOString(),
     );
-    hermes.setStatus(
-      { status: "idle" },
-      { "x-hermes-agent": "session-a" },
-      LATER,
-    );
+    hermes.setStatus({ status: "idle" }, "session-a", LATER);
     expect(hermes.getSession("session-a")?.status).toBe("idle");
   });
 
   it("upserts a session that sets status before registering", () => {
-    hermes.setStatus(
-      { status: "busy" },
-      { "x-hermes-agent": "session-a" },
-      NOW,
-    );
+    hermes.setStatus({ status: "busy" }, "session-a", NOW);
     expect(hermes.getSession("session-a")).toEqual({
       session_id: "session-a",
       description: "(no description yet)",
@@ -260,17 +239,11 @@ describe("status", () => {
 
   it("preserves an existing session's description when flipping status", () => {
     register("session-a", { description: "real work" }, NOW);
-    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "session-a" }, MID);
+    hermes.setStatus({ status: "busy" }, "session-a", MID);
     const row = hermes.getSession("session-a");
     expect(row?.description).toBe("real work");
     expect(row?.status).toBe("busy");
     expect(row?.registered_at).toBe(new Date(NOW).toISOString());
-  });
-
-  it("throws when the X-Hermes-Agent header is absent", () => {
-    expect(() => hermes.setStatus({ status: "busy" }, {}, NOW)).toThrow(
-      MissingIdentityError,
-    );
   });
 });
 
@@ -278,7 +251,7 @@ describe("deregister", () => {
   it("removes exactly that session and leaves the others", () => {
     register("session-a", { description: "one" });
     register("session-b", { description: "two" });
-    hermes.deregister({ "x-hermes-agent": "session-a" });
+    hermes.deregister("session-a");
     expect(hermes.getSession("session-a")).toBeUndefined();
     expect(hermes.getSession("session-b")?.description).toBe("two");
   });
@@ -286,7 +259,7 @@ describe("deregister", () => {
   it("drops the session from the directory listing", () => {
     register("session-a", { description: "one" });
     register("session-b", { description: "two" });
-    hermes.deregister({ "x-hermes-agent": "session-a" });
+    hermes.deregister("session-a");
     expect(hermes.listSessions(NOW).sessions.map((s) => s.session_id)).toEqual([
       "session-b",
     ]);
@@ -294,20 +267,14 @@ describe("deregister", () => {
 
   it("is a no-op for an unknown id, disturbing nothing", () => {
     register("session-a", { description: "one" });
-    expect(() =>
-      hermes.deregister({ "x-hermes-agent": "nobody" }),
-    ).not.toThrow();
+    expect(() => hermes.deregister("nobody")).not.toThrow();
     expect(hermes.getSession("session-a")?.description).toBe("one");
     expect(hermes.listSessions(NOW).sessions).toHaveLength(1);
   });
 
-  it("throws when the X-Hermes-Agent header is absent", () => {
-    expect(() => hermes.deregister({})).toThrow(MissingIdentityError);
-  });
-
   it("lets a deregistered id register again as a fresh session", () => {
     register("session-a", { description: "one" }, NOW);
-    hermes.deregister({ "x-hermes-agent": "session-a" });
+    hermes.deregister("session-a");
     register("session-a", { description: "back again" }, LATER);
     expect(hermes.getSession("session-a")).toEqual({
       session_id: "session-a",
@@ -319,57 +286,6 @@ describe("deregister", () => {
   });
 });
 
-describe("setDescription identity", () => {
-  const input = { description: "x" };
-
-  it("throws when the X-Hermes-Agent header is missing", () => {
-    expect(() => hermes.setDescription(input, {}, NOW)).toThrow(
-      /X-Hermes-Agent/,
-    );
-    expect(() => hermes.setDescription(input, undefined, NOW)).toThrow(
-      /X-Hermes-Agent/,
-    );
-  });
-
-  it("throws when the header is blank", () => {
-    expect(() =>
-      hermes.setDescription(input, { "x-hermes-agent": "   " }, NOW),
-    ).toThrow();
-  });
-
-  it("trims the header value and keys the session on the trimmed id", () => {
-    hermes.setDescription(input, { "x-hermes-agent": "  session-a  " }, NOW);
-    expect(hermes.getSession("session-a")?.description).toBe("x");
-  });
-
-  it("uses the first value when the header arrives as an array", () => {
-    hermes.setDescription(
-      input,
-      { "x-hermes-agent": ["session-a", "session-b"] },
-      NOW,
-    );
-    expect(hermes.getSession("session-a")?.description).toBe("x");
-    expect(hermes.getSession("session-b")).toBeUndefined();
-  });
-
-  it("throws when the first array value is blank, ignoring later values", () => {
-    expect(() =>
-      hermes.setDescription(
-        input,
-        { "x-hermes-agent": ["   ", "session-b"] },
-        NOW,
-      ),
-    ).toThrow();
-    expect(hermes.getSession("session-b")).toBeUndefined();
-  });
-
-  it("throws when the header array is empty", () => {
-    expect(() =>
-      hermes.setDescription(input, { "x-hermes-agent": [] }, NOW),
-    ).toThrow();
-  });
-});
-
 describe("create with a file path", () => {
   it("creates the parent directory and persists across reopen", () => {
     const dir = mkdtempSync(join(tmpdir(), "hermes-"));
@@ -377,11 +293,7 @@ describe("create with a file path", () => {
     const dbPath = join(dir, "nested", "hermes.db");
     try {
       const first = Hermes.create({ dbPath });
-      first.setDescription(
-        { description: "one" },
-        { "x-hermes-agent": "session-a" },
-        NOW,
-      );
+      first.setDescription({ description: "one" }, "session-a", NOW);
       first.close();
 
       const reopened = Hermes.create({ dbPath });
@@ -407,7 +319,7 @@ describe("sweeper (server-owned expiry)", () => {
     try {
       vi.setSystemTime(NOW);
       const h = Hermes.create({ dbPath: ":memory:" });
-      h.register({ "x-hermes-agent": "ghost" }, NOW);
+      h.register("ghost", NOW);
       expect(h.getSession("ghost")).toBeDefined();
       // Jump past the cutoff; the sweeper fires by itself — nobody registers.
       vi.setSystemTime(NOW + 10 * 60_000);
@@ -424,7 +336,7 @@ describe("sweeper (server-owned expiry)", () => {
     try {
       vi.setSystemTime(NOW);
       const h = Hermes.create({ dbPath: ":memory:" });
-      h.register({ "x-hermes-agent": "fresh" }, NOW);
+      h.register("fresh", NOW);
       // 2 min later — still within the 5-min cutoff, so the sweeper spares it.
       vi.setSystemTime(NOW + 2 * 60_000);
       vi.advanceTimersByTime(60_000);
@@ -473,11 +385,11 @@ describe("messaging", () => {
     from: string,
     input: Parameters<Hermes["sendMessage"]>[0],
     at: number = NOW,
-  ) => hermes.sendMessage(input, { "x-hermes-agent": from }, at);
+  ) => hermes.sendMessage(input, from, at);
   const inbox = (sessionId: string, at: number = NOW) =>
-    hermes.checkMessages({ "x-hermes-agent": sessionId }, at);
+    hermes.checkMessages(sessionId, at);
   const peek = (sessionId: string, at: number = NOW) =>
-    hermes.peekMessages({ "x-hermes-agent": sessionId }, at);
+    hermes.peekMessages(sessionId, at);
 
   it("delivers a direct message to the named live session", () => {
     register("alice", { description: "a" }, NOW);
@@ -548,7 +460,7 @@ describe("messaging", () => {
 
   it("delivers even when the sender isn't registered — only the recipient must be live", () => {
     register("bob", { description: "b" }, NOW);
-    // alice never registered, but her header identifies her as the sender.
+    // alice never registered, but her id identifies her as the sender.
     expect(send("alice", { to: "bob", message: "hi" })).toEqual({
       delivered: 1,
     });
@@ -573,47 +485,35 @@ describe("messaging", () => {
     register("alice", { description: "a" }, NOW);
     register("bob", { description: "b" }, NOW);
     send("alice", { to: "bob", message: "bye soon" });
-    hermes.deregister({ "x-hermes-agent": "bob" });
+    hermes.deregister("bob");
     expect(peek("bob").messages).toEqual([]);
-  });
-
-  it("requires identity to send or read", () => {
-    expect(() =>
-      hermes.sendMessage({ to: "bob", message: "x" }, {}, NOW),
-    ).toThrow(MissingIdentityError);
-    expect(() => hermes.checkMessages({}, NOW)).toThrow(MissingIdentityError);
-    expect(() => hermes.peekMessages({}, NOW)).toThrow(MissingIdentityError);
   });
 
   it("pullIfIdle drains waiting messages when the recipient is idle", () => {
     register("alice", { description: "a" }, NOW);
-    hermes.register({ "x-hermes-agent": "bob" }, NOW); // idle by default
+    hermes.register("bob", NOW); // idle by default
     send("alice", { to: "bob", message: "wake up" });
-    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual([
+    expect(hermes.pullIfIdle("bob", NOW).messages).toEqual([
       { from: "alice", message: "wake up", at: "just now" },
     ]);
     // drained on read, so a second pull is empty
-    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual(
-      [],
-    );
+    expect(hermes.pullIfIdle("bob", NOW).messages).toEqual([]);
   });
 
   it("pullIfIdle delivers nothing while the recipient is busy, leaving the inbox intact", () => {
     register("alice", { description: "a" }, NOW);
-    hermes.register({ "x-hermes-agent": "bob" }, NOW);
-    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "bob" }, NOW);
+    hermes.register("bob", NOW);
+    hermes.setStatus({ status: "busy" }, "bob", NOW);
     send("alice", { to: "bob", message: "later" });
-    expect(hermes.pullIfIdle({ "x-hermes-agent": "bob" }, NOW).messages).toEqual(
-      [],
-    );
+    expect(hermes.pullIfIdle("bob", NOW).messages).toEqual([]);
     // still waiting — the Stop hook delivers these at turn-end
     expect(peek("bob").messages).toHaveLength(1);
   });
 
   it("checkMessages drains even while busy — the Stop-hook path ignores status", () => {
     register("alice", { description: "a" }, NOW);
-    hermes.register({ "x-hermes-agent": "bob" }, NOW);
-    hermes.setStatus({ status: "busy" }, { "x-hermes-agent": "bob" }, NOW);
+    hermes.register("bob", NOW);
+    hermes.setStatus({ status: "busy" }, "bob", NOW);
     send("alice", { to: "bob", message: "turn-end" });
     // unlike pullIfIdle, checkMessages drains regardless of status
     expect(inbox("bob").messages).toEqual([
@@ -623,13 +523,7 @@ describe("messaging", () => {
   });
 
   it("pullIfIdle returns nothing for an unregistered session", () => {
-    expect(
-      hermes.pullIfIdle({ "x-hermes-agent": "ghost" }, NOW).messages,
-    ).toEqual([]);
-  });
-
-  it("pullIfIdle requires identity", () => {
-    expect(() => hermes.pullIfIdle({}, NOW)).toThrow(MissingIdentityError);
+    expect(hermes.pullIfIdle("ghost", NOW).messages).toEqual([]);
   });
 
   it("the sweeper clears messages left to a swept recipient", () => {
@@ -637,22 +531,14 @@ describe("messaging", () => {
     try {
       vi.setSystemTime(NOW);
       const h = Hermes.create({ dbPath: ":memory:" });
-      h.register({ "x-hermes-agent": "alice" }, NOW);
-      h.register({ "x-hermes-agent": "bob" }, NOW);
-      h.sendMessage(
-        { to: "bob", message: "waiting" },
-        { "x-hermes-agent": "alice" },
-        NOW,
-      );
-      expect(
-        h.peekMessages({ "x-hermes-agent": "bob" }, NOW).messages,
-      ).toHaveLength(1);
+      h.register("alice", NOW);
+      h.register("bob", NOW);
+      h.sendMessage({ to: "bob", message: "waiting" }, "alice", NOW);
+      expect(h.peekMessages("bob", NOW).messages).toHaveLength(1);
       // Everyone goes stale; the sweeper deletes the sessions and the orphaned inbox.
       vi.setSystemTime(NOW + 10 * 60_000);
       vi.advanceTimersByTime(60_000);
-      expect(
-        h.peekMessages({ "x-hermes-agent": "bob" }, NOW + 10 * 60_000).messages,
-      ).toEqual([]);
+      expect(h.peekMessages("bob", NOW + 10 * 60_000).messages).toEqual([]);
       h.close();
     } finally {
       vi.useRealTimers();

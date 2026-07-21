@@ -1,7 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   updateSessionSchema,
@@ -11,23 +10,11 @@ import {
 import { type Session, type Message } from "@/types/database";
 import { type HermesConfig } from "@/types/configs";
 import { relativeTime } from "@/lib";
-import { MissingIdentityError } from "@/errors";
 import { logger } from "@/logger";
 
 const PLACEHOLDER_DESCRIPTION = "(no description yet)";
 const STALE_AFTER_MS = 5 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
-
-/**
- * The caller's own session id, carried in the X-Hermes-Agent header — the header value is the
- * id itself. Throws if absent or blank.
- */
-function sessionIdFrom(headers: IsomorphicHeaders | undefined): string {
-  const raw = headers?.["x-hermes-agent"];
-  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
-  if (!value) throw new MissingIdentityError("Missing X-Hermes-Agent header");
-  return value;
-}
 
 /** Live directory of the Claude sessions running right now — SQLite, nothing durable. */
 export class Hermes {
@@ -96,11 +83,7 @@ export class Hermes {
   }
 
   /** Adds the calling session to the registry with a placeholder description. */
-  register(
-    headers: IsomorphicHeaders | undefined,
-    now: number = Date.now(),
-  ): void {
-    const sessionId = sessionIdFrom(headers);
+  register(sessionId: string, now: number = Date.now()): void {
     const at = new Date(now).toISOString();
     this.db
       .prepare(
@@ -114,10 +97,9 @@ export class Hermes {
   /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
   setDescription(
     input: z.infer<typeof updateSessionSchema>,
-    headers: IsomorphicHeaders | undefined,
+    sessionId: string,
     now: number = Date.now(),
   ): void {
-    const sessionId = sessionIdFrom(headers);
     const at = new Date(now).toISOString();
     this.db
       .prepare(
@@ -132,10 +114,9 @@ export class Hermes {
   /** Mark the calling session busy or idle and bump `last_seen`. Upserts if not signed in yet. */
   setStatus(
     input: z.infer<typeof setStatusSchema>,
-    headers: IsomorphicHeaders | undefined,
+    sessionId: string,
     now: number = Date.now(),
   ): void {
-    const sessionId = sessionIdFrom(headers);
     const at = new Date(now).toISOString();
     this.db
       .prepare(
@@ -173,9 +154,8 @@ export class Hermes {
     };
   }
 
-  /** Remove the calling session and its inbox, identified by its X-Hermes-Agent header. Unknown id is a no-op. */
-  deregister(headers: IsomorphicHeaders | undefined): void {
-    const sessionId = sessionIdFrom(headers);
+  /** Remove the calling session and its inbox. Unknown id is a no-op. */
+  deregister(sessionId: string): void {
     this.db
       .prepare(`DELETE FROM sessions WHERE session_id = @sessionId`)
       .run({ sessionId });
@@ -187,10 +167,9 @@ export class Hermes {
   /** Send the message to the named live session. Returns 1 if delivered, 0 if that session isn't live. */
   sendMessage(
     input: z.infer<typeof sendMessageSchema>,
-    headers: IsomorphicHeaders | undefined,
+    sessionId: string,
     now: number = Date.now(),
   ): { delivered: number } {
-    const senderId = sessionIdFrom(headers);
     const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
     const recipient = this.db
       .prepare(
@@ -204,21 +183,17 @@ export class Hermes {
         `INSERT INTO messages (recipient_id, sender_id, message, created_at)
          VALUES (@to, @senderId, @message, @at)`,
       )
-      .run({ to: input.to, senderId, message: input.message, at });
+      .run({ to: input.to, senderId: sessionId, message: input.message, at });
     return { delivered: 1 };
   }
 
   /** Return the calling session's waiting messages without clearing them. */
-  peekMessages(
-    headers: IsomorphicHeaders | undefined,
-    now: number = Date.now(),
-  ) {
-    const recipientId = sessionIdFrom(headers);
+  peekMessages(sessionId: string, now: number = Date.now()) {
     const rows = this.db
       .prepare(
-        `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @recipientId ORDER BY id`,
+        `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @sessionId ORDER BY id`,
       )
-      .all({ recipientId }) as Pick<
+      .all({ sessionId }) as Pick<
       Message,
       "sender_id" | "message" | "created_at"
     >[];
@@ -226,38 +201,33 @@ export class Hermes {
   }
 
   /** Return and clear the calling session's waiting messages. */
-  checkMessages(
-    headers: IsomorphicHeaders | undefined,
-    now: number = Date.now(),
-  ) {
-    const recipientId = sessionIdFrom(headers);
+  checkMessages(sessionId: string, now: number = Date.now()) {
     const drain = this.db.transaction(() => {
       const rows = this.db
         .prepare(
-          `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @recipientId ORDER BY id`,
+          `SELECT sender_id, message, created_at FROM messages WHERE recipient_id = @sessionId ORDER BY id`,
         )
-        .all({ recipientId }) as Pick<
+        .all({ sessionId }) as Pick<
         Message,
         "sender_id" | "message" | "created_at"
       >[];
       this.db
-        .prepare(`DELETE FROM messages WHERE recipient_id = @recipientId`)
-        .run({ recipientId });
+        .prepare(`DELETE FROM messages WHERE recipient_id = @sessionId`)
+        .run({ sessionId });
       return rows;
     });
     return { messages: this.formatMessages(drain(), now) };
   }
 
   /** Return and clear the calling session's waiting messages when idle; none if busy. */
-  pullIfIdle(headers: IsomorphicHeaders | undefined, now: number = Date.now()) {
-    const sessionId = sessionIdFrom(headers);
+  pullIfIdle(sessionId: string, now: number = Date.now()) {
     const idle = this.db
       .prepare(
         `SELECT 1 FROM sessions WHERE session_id = @sessionId AND status = 'idle'`,
       )
       .get({ sessionId });
     if (!idle) return { messages: [] };
-    return this.checkMessages(headers, now);
+    return this.checkMessages(sessionId, now);
   }
 
   private formatMessages(

@@ -1,6 +1,17 @@
+import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
+import { MissingIdentityError } from "@/errors";
+
 /** Trim and lowercase text; blank or absent yields null. */
 export function normalizeText(text: string | undefined): string | null {
   return (text ?? "").trim().toLowerCase() || null;
+}
+
+/** The caller's session id from the X-Hermes-Agent header. Throws if absent or blank. */
+export function getSessionId(headers: IsomorphicHeaders | undefined): string {
+  const raw = headers?.["x-hermes-agent"];
+  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (!value) throw new MissingIdentityError("Missing X-Hermes-Agent header");
+  return value;
 }
 
 /** Format an ISO timestamp as a relative note of how long ago it was; null if missing, malformed, or in the future. */
