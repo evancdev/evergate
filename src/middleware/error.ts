@@ -11,12 +11,13 @@ export const errorHandler = (
   _next: NextFunction,
 ) => {
   if (err instanceof ZodError) {
-    res
-      .status(400)
-      .json({ description: z.prettifyError(err), errors: z.treeifyError(err) });
+    const message = z.prettifyError(err);
+    logger.warn(message);
+    res.status(400).json({ description: message, errors: z.treeifyError(err) });
     return;
   }
   if (err instanceof MissingIdentityError) {
+    logger.warn(err.message);
     res.status(400).json({ description: err.message });
     return;
   }

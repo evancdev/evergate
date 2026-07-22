@@ -1,5 +1,6 @@
 import { type Server } from "node:http";
 import express from "express";
+import morgan from "morgan";
 import { router } from "@/routers/index";
 import { errorHandler } from "@/middleware/error";
 import { logger } from "@/logger";
@@ -9,6 +10,7 @@ import { services } from "@/services/index";
 const TERMINATION_GRACE_PERIOD_MS = 10_000;
 
 const app = express();
+app.use(morgan("tiny"));
 app.use(express.json());
 
 app.use(router);

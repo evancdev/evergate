@@ -19,13 +19,15 @@
     "format:check": "prettier --check .",
     "docker:up": "docker compose --env-file .env -f docker/compose.yml up -d --build",
     "docker:down": "docker compose --env-file .env -f docker/compose.yml down",
-    "docker:logs": "docker compose --env-file .env -f docker/compose.yml logs -f"
+    "logs": "docker compose --env-file .env -f docker/compose.yml logs -f",
+    "logs:mcp": "docker compose --env-file .env -f docker/compose.yml logs -f --tail=100 mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "morgan": "^1.11.0",
     "neo4j-driver": "^6.1.0",
     "zod": "^4.4.3"
   },
@@ -34,6 +36,7 @@
     "@testcontainers/neo4j": "^12.0.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.6.0",
