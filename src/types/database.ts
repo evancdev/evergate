@@ -1,6 +1,7 @@
 // Row shapes for the Hermes SQLite tables.
 
 export interface Session {
+  terminal_id: string;
   session_id: string;
   description: string;
   registered_at: string;

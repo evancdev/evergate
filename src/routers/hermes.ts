@@ -2,18 +2,27 @@ import { Router, type Request, type Response } from "express";
 import { type z } from "zod";
 import { services } from "@/services/index";
 import { validate } from "@/middleware/validate";
-import { requireSession } from "@/middleware/session";
-import { setStatusSchema } from "@/schemas/hermes";
+import { attachTerminalId, requireSessionId } from "@/middleware/session";
+import { setSessionSchema, setStatusSchema } from "@/schemas/hermes";
 
-/** Add or refresh the caller in the roster. */
-const registerSession = (req: Request, res: Response) => {
-  services.hermes.register(req.sessionId);
+/** Set the terminal's session id. */
+const setSession = (
+  req: Request<unknown, unknown, z.infer<typeof setSessionSchema>>,
+  res: Response,
+) => {
+  services.hermes.setSession(req.terminalId, req.body.session_id);
   res.status(204).end();
 };
 
-/** Remove the caller from the roster. */
+/** Add or refresh the caller's terminal in the roster. */
+const registerSession = (req: Request, res: Response) => {
+  services.hermes.register(req.terminalId);
+  res.status(204).end();
+};
+
+/** Remove the caller's terminal from the roster. */
 const deregisterSession = (req: Request, res: Response) => {
-  services.hermes.deregister(req.sessionId);
+  services.hermes.deregister(req.terminalId);
   res.status(204).end();
 };
 
@@ -32,14 +41,15 @@ const setStatus = (
   req: Request<unknown, unknown, z.infer<typeof setStatusSchema>>,
   res: Response,
 ) => {
-  services.hermes.setStatus(req.body, req.sessionId);
+  services.hermes.setStatus(req.body, req.terminalId);
   res.status(204).end();
 };
 
 export const hermesRouter = Router();
-hermesRouter.use(requireSession);
+hermesRouter.use(attachTerminalId);
+hermesRouter.post("/session", validate(setSessionSchema), setSession);
 hermesRouter.post("/register", registerSession);
 hermesRouter.post("/deregister", deregisterSession);
-hermesRouter.post("/check", checkMessages);
-hermesRouter.post("/pull", pullMessages);
+hermesRouter.post("/check", requireSessionId, checkMessages);
+hermesRouter.post("/pull", requireSessionId, pullMessages);
 hermesRouter.post("/status", validate(setStatusSchema), setStatus);

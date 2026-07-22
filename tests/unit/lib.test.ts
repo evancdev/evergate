@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeText, relativeTime, getSessionId } from "@/lib";
+import {
+  normalizeText,
+  parseTerminalId,
+  relativeTime,
+  requireTerminalId,
+} from "@/lib";
 import { MissingIdentityError } from "@/errors";
 
 const NOW = Date.parse("2026-06-30T12:00:00.000Z");
@@ -64,43 +69,59 @@ describe("normalizeText", () => {
   });
 });
 
-describe("getSessionId", () => {
-  it("returns the X-Hermes-Agent header value", () => {
-    expect(getSessionId({ "x-hermes-agent": "session-a" })).toBe("session-a");
+describe("requireTerminalId", () => {
+  it("returns the X-Hermes-Terminal header value", () => {
+    expect(requireTerminalId({ "x-hermes-terminal": "term-a" })).toBe("term-a");
   });
 
   it("trims surrounding whitespace", () => {
-    expect(getSessionId({ "x-hermes-agent": "  session-a  " })).toBe(
-      "session-a",
+    expect(requireTerminalId({ "x-hermes-terminal": "  term-a  " })).toBe(
+      "term-a",
     );
   });
 
   it("uses the first value when the header arrives as an array", () => {
-    expect(getSessionId({ "x-hermes-agent": ["session-a", "session-b"] })).toBe(
-      "session-a",
-    );
+    expect(
+      requireTerminalId({ "x-hermes-terminal": ["term-a", "term-b"] }),
+    ).toBe("term-a");
   });
 
   it("throws when the header is absent", () => {
-    expect(() => getSessionId({})).toThrow(MissingIdentityError);
-    expect(() => getSessionId(undefined)).toThrow(MissingIdentityError);
+    expect(() => requireTerminalId({})).toThrow(MissingIdentityError);
+    expect(() => requireTerminalId(undefined)).toThrow(MissingIdentityError);
   });
 
   it("throws when the header is blank", () => {
-    expect(() => getSessionId({ "x-hermes-agent": "   " })).toThrow(
+    expect(() => requireTerminalId({ "x-hermes-terminal": "   " })).toThrow(
       MissingIdentityError,
     );
   });
 
   it("throws when the first array value is blank, ignoring later values", () => {
     expect(() =>
-      getSessionId({ "x-hermes-agent": ["   ", "session-b"] }),
+      requireTerminalId({ "x-hermes-terminal": ["   ", "term-b"] }),
     ).toThrow(MissingIdentityError);
   });
 
   it("throws when the header array is empty", () => {
-    expect(() => getSessionId({ "x-hermes-agent": [] })).toThrow(
+    expect(() => requireTerminalId({ "x-hermes-terminal": [] })).toThrow(
       MissingIdentityError,
     );
+  });
+});
+
+describe("parseTerminalId", () => {
+  it("returns the trimmed terminal id when present", () => {
+    expect(parseTerminalId({ "x-hermes-terminal": "  term-a  " })).toBe(
+      "term-a",
+    );
+    expect(parseTerminalId({ "x-hermes-terminal": ["term-a"] })).toBe("term-a");
+  });
+
+  it("returns undefined when the header is absent, blank, or an empty array", () => {
+    expect(parseTerminalId({})).toBeUndefined();
+    expect(parseTerminalId(undefined)).toBeUndefined();
+    expect(parseTerminalId({ "x-hermes-terminal": "   " })).toBeUndefined();
+    expect(parseTerminalId({ "x-hermes-terminal": [] })).toBeUndefined();
   });
 });

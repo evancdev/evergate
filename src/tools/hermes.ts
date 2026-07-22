@@ -6,24 +6,26 @@ import {
   sendMessageSchema,
   listSessionsOutputSchema,
 } from "@/schemas/hermes";
-import { getSessionId } from "@/lib";
 import { logger } from "@/logger";
 import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
 
-/** Attach the Hermes agent-to-agent messaging tools to the MCP server. */
-export function registerHermesTools(server: McpServer): void {
+/** Attach the Hermes messaging tools, bound to the caller's terminal. */
+export function registerHermesTools(
+  server: McpServer,
+  terminalId: string,
+): void {
+  /** The caller's live session id, resolved when a tool actually needs it. */
+  const mySessionId = () => services.hermes.resolveSession(terminalId);
+
   server.registerTool(
     "update_session",
     {
       description: `Update your session's work description. Use this when your focus shifts to a different task or area of work — not for small steps within the same task.`,
       inputSchema: updateSessionSchema,
     },
-    (input, extra): CallToolResult => {
+    (input): CallToolResult => {
       try {
-        services.hermes.setDescription(
-          input,
-          getSessionId(extra.requestInfo?.headers),
-        );
+        services.hermes.setDescription(input, terminalId);
         return formatText("description updated");
       } catch (err) {
         logger.error("update_session failed", err, input);
@@ -39,12 +41,10 @@ export function registerHermesTools(server: McpServer): void {
         "Lists the Claude sessions in the registry, what each is working on, and any messages waiting for you.",
       outputSchema: listSessionsOutputSchema,
     },
-    (extra): CallToolResult => {
+    (): CallToolResult => {
       try {
         const { sessions } = services.hermes.listSessions();
-        const { messages } = services.hermes.peekMessages(
-          getSessionId(extra.requestInfo?.headers),
-        );
+        const { messages } = services.hermes.peekMessages(mySessionId());
         return formatStructured({ sessions, messages });
       } catch (err) {
         logger.error("list_sessions failed", err);
@@ -56,16 +56,12 @@ export function registerHermesTools(server: McpServer): void {
   server.registerTool(
     "send_message",
     {
-      description:
-        "Send a message to another live session.",
+      description: "Send a message to another live session.",
       inputSchema: sendMessageSchema,
     },
-    (input, extra): CallToolResult => {
+    (input): CallToolResult => {
       try {
-        const { delivered } = services.hermes.sendMessage(
-          input,
-          getSessionId(extra.requestInfo?.headers),
-        );
+        const { delivered } = services.hermes.sendMessage(input, mySessionId());
         return formatText(
           delivered > 0
             ? "delivered"

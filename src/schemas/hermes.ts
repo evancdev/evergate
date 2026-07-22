@@ -17,6 +17,14 @@ export const setStatusSchema = z.object({
   status: z.enum(["busy", "idle"]),
 });
 
+export const setSessionSchema = z.object({
+  session_id: z
+    .string()
+    .trim()
+    .min(1)
+    .describe("The terminal's live session id"),
+});
+
 const sessionSummarySchema = z.object({
   session_id: z.string(),
   description: z.string(),

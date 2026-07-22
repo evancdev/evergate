@@ -6,11 +6,21 @@ export function normalizeText(text: string | undefined): string | null {
   return (text ?? "").trim().toLowerCase() || null;
 }
 
-/** The caller's session id from the X-Hermes-Agent header. Throws if absent or blank. */
-export function getSessionId(headers: IsomorphicHeaders | undefined): string {
-  const raw = headers?.["x-hermes-agent"];
-  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
-  if (!value) throw new MissingIdentityError("Missing X-Hermes-Agent header");
+/** The caller's terminal id from X-Hermes-Terminal, trimmed, or undefined if absent or blank. */
+export function parseTerminalId(
+  headers: IsomorphicHeaders | undefined,
+): string | undefined {
+  const raw = headers?.["x-hermes-terminal"];
+  return (Array.isArray(raw) ? raw[0] : raw)?.trim() || undefined;
+}
+
+/** The caller's terminal id from X-Hermes-Terminal. Throws if absent or blank. */
+export function requireTerminalId(
+  headers: IsomorphicHeaders | undefined,
+): string {
+  const value = parseTerminalId(headers);
+  if (!value)
+    throw new MissingIdentityError("Missing X-Hermes-Terminal header");
   return value;
 }
 

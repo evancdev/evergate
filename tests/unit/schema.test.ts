@@ -4,6 +4,7 @@ import { upsertSchema, searchSchema, listSchema } from "@/schemas/neo4j";
 import {
   updateSessionSchema,
   setStatusSchema,
+  setSessionSchema,
   listSessionsOutputSchema,
 } from "@/schemas/hermes";
 
@@ -107,6 +108,21 @@ describe("setStatusSchema", () => {
       false,
     );
     expect(setStatusSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("setSessionSchema", () => {
+  it("accepts a non-empty session_id and trims it", () => {
+    expect(setSessionSchema.parse({ session_id: "  sess-a  " })).toEqual({
+      session_id: "sess-a",
+    });
+  });
+
+  it("rejects a missing or empty session_id", () => {
+    expect(setSessionSchema.safeParse({}).success).toBe(false);
+    expect(setSessionSchema.safeParse({ session_id: "   " }).success).toBe(
+      false,
+    );
   });
 });
 

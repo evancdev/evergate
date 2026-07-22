@@ -34,6 +34,7 @@ describe("setDescription", () => {
     register("session-a", { description: "building the api" }, NOW);
     const row = hermes.getSession("session-a");
     expect(row).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "building the api",
       registered_at: new Date(NOW).toISOString(),
@@ -54,6 +55,7 @@ describe("setDescription", () => {
     register("session-a", { description: "v2" }, LATER);
     const row = hermes.getSession("session-a");
     expect(row).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "v2",
       registered_at: new Date(NOW).toISOString(),
@@ -72,6 +74,7 @@ describe("register (signup)", () => {
   it("signs a session in with a placeholder description", () => {
     hermes.register("session-a", NOW);
     expect(hermes.getSession("session-a")).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "(no description yet)",
       registered_at: new Date(NOW).toISOString(),
@@ -85,6 +88,7 @@ describe("register (signup)", () => {
     hermes.setDescription({ description: "real work" }, "session-a", MID);
     hermes.register("session-a", LATER);
     expect(hermes.getSession("session-a")).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "real work",
       registered_at: new Date(NOW).toISOString(),
@@ -229,6 +233,7 @@ describe("status", () => {
   it("upserts a session that sets status before registering", () => {
     hermes.setStatus({ status: "busy" }, "session-a", NOW);
     expect(hermes.getSession("session-a")).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "(no description yet)",
       registered_at: new Date(NOW).toISOString(),
@@ -277,6 +282,7 @@ describe("deregister", () => {
     hermes.deregister("session-a");
     register("session-a", { description: "back again" }, LATER);
     expect(hermes.getSession("session-a")).toEqual({
+      terminal_id: "session-a",
       session_id: "session-a",
       description: "back again",
       registered_at: new Date(LATER).toISOString(),
@@ -310,6 +316,95 @@ describe("close", () => {
     register("session-a", { description: "one" }, NOW);
     hermes.close();
     expect(() => hermes.getSession("session-a")).toThrow();
+  });
+});
+
+describe("terminals (terminal -> live session)", () => {
+  it("setSession points a terminal at a session; a new session flips it in place", () => {
+    hermes.setSession("terminal-1", "sess-a", NOW);
+    expect(hermes.getSession("sess-a")?.terminal_id).toBe("terminal-1");
+    // Same terminal, new session id — the old row is overwritten, not aged out.
+    hermes.setSession("terminal-1", "sess-b", LATER);
+    expect(hermes.getSession("sess-b")?.terminal_id).toBe("terminal-1");
+    expect(hermes.getSession("sess-a")).toBeUndefined();
+    expect(hermes.listSessions(LATER).sessions).toHaveLength(1);
+  });
+
+  it("resets the description when the terminal's session changes, keeps it when unchanged", () => {
+    hermes.setSession("terminal-1", "sess-a", NOW);
+    hermes.setDescription(
+      { description: "building the api" },
+      "terminal-1",
+      NOW,
+    );
+    // Set the SAME session id again: description survives.
+    hermes.setSession("terminal-1", "sess-a", MID);
+    expect(hermes.getSession("sess-a")?.description).toBe("building the api");
+    // Set a NEW session id: description resets to the placeholder.
+    hermes.setSession("terminal-1", "sess-b", LATER);
+    expect(hermes.getSession("sess-b")?.description).toBe(
+      "(no description yet)",
+    );
+  });
+
+  it("resolveSession follows a terminal to its live session", () => {
+    hermes.setSession("terminal-1", "sess-live", NOW);
+    expect(hermes.resolveSession("terminal-1")).toBe("sess-live");
+  });
+
+  it("resolveSession falls back to the terminal id when it isn't in the roster yet", () => {
+    expect(hermes.resolveSession("unmapped")).toBe("unmapped");
+  });
+
+  it("register never rewrites a terminal's session (the frozen connector can't reset it)", () => {
+    // Terminal bound to the live session; the connector then re-registers on the same terminal.
+    hermes.setSession("terminal-1", "sess-live", NOW);
+    hermes.register("terminal-1", LATER);
+    expect(hermes.getSession("sess-live")?.terminal_id).toBe("terminal-1");
+  });
+
+  it("register seeds session_id from the terminal id until setSession sets the real one", () => {
+    hermes.register("terminal-1", NOW);
+    expect(hermes.getSession("terminal-1")?.session_id).toBe("terminal-1");
+  });
+
+  it("resets status and registered_at on a session change, keeps them when unchanged", () => {
+    hermes.setSession("terminal-1", "sess-a", NOW);
+    hermes.setStatus({ status: "busy" }, "terminal-1", NOW);
+    // Same session id: status and registered_at survive.
+    hermes.setSession("terminal-1", "sess-a", MID);
+    expect(hermes.getSession("sess-a")?.status).toBe("busy");
+    expect(hermes.getSession("sess-a")?.registered_at).toBe(
+      new Date(NOW).toISOString(),
+    );
+    // New session id: status resets to idle, registered_at bumps.
+    hermes.setSession("terminal-1", "sess-b", LATER);
+    expect(hermes.getSession("sess-b")?.status).toBe("idle");
+    expect(hermes.getSession("sess-b")?.registered_at).toBe(
+      new Date(LATER).toISOString(),
+    );
+  });
+
+  it("deregister clears the inbox of the terminal's resolved session, not the terminal id", () => {
+    hermes.setSession("terminal-1", "sess-real", NOW);
+    hermes.sendMessage({ to: "sess-real", message: "hi" }, "sender", NOW);
+    expect(hermes.peekMessages("sess-real", NOW).messages).toHaveLength(1);
+    hermes.deregister("terminal-1");
+    expect(hermes.peekMessages("sess-real", NOW).messages).toHaveLength(0);
+  });
+
+  it("setSession drops the old session's inbox when the session changes", () => {
+    hermes.setSession("terminal-1", "sess-a", NOW);
+    hermes.sendMessage({ to: "sess-a", message: "stale" }, "sender", NOW);
+    hermes.setSession("terminal-1", "sess-b", LATER);
+    expect(hermes.peekMessages("sess-a", LATER).messages).toHaveLength(0);
+  });
+
+  it("setSession keeps the inbox when the same session id is set again", () => {
+    hermes.setSession("terminal-1", "sess-a", NOW);
+    hermes.sendMessage({ to: "sess-a", message: "still here" }, "sender", NOW);
+    hermes.setSession("terminal-1", "sess-a", LATER);
+    expect(hermes.peekMessages("sess-a", LATER).messages).toHaveLength(1);
   });
 });
 

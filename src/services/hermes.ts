@@ -16,7 +16,7 @@ const PLACEHOLDER_DESCRIPTION = "(no description yet)";
 const STALE_AFTER_MS = 5 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
 
-/** Live directory of the Claude sessions running right now — SQLite, nothing durable. */
+/** Live directory of running Claude sessions. SQLite, nothing durable. */
 export class Hermes {
   private readonly sweeper: ReturnType<typeof setInterval>;
 
@@ -66,12 +66,14 @@ export class Hermes {
   private ensureSchema(): void {
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS sessions (
-         session_id    TEXT PRIMARY KEY,
+         terminal_id   TEXT PRIMARY KEY,
+         session_id    TEXT NOT NULL,
          description   TEXT NOT NULL,
          registered_at TEXT NOT NULL,
          last_seen     TEXT NOT NULL,
          status        TEXT NOT NULL DEFAULT 'idle'
        );
+       CREATE INDEX IF NOT EXISTS session_id ON sessions(session_id);
        CREATE TABLE IF NOT EXISTS messages (
          id           INTEGER PRIMARY KEY AUTOINCREMENT,
          recipient_id TEXT NOT NULL,
@@ -82,57 +84,107 @@ export class Hermes {
     );
   }
 
-  /** Adds the calling session to the registry with a placeholder description. */
-  register(sessionId: string, now: number = Date.now()): void {
+  /** Add the terminal to the roster, or bump last_seen if already present. */
+  register(terminalId: string, now: number = Date.now()): void {
     const at = new Date(now).toISOString();
     this.db
       .prepare(
-        `INSERT INTO sessions (session_id, description, registered_at, last_seen)
-         VALUES (@sessionId, @description, @now, @now)
-         ON CONFLICT(session_id) DO UPDATE SET last_seen = @now`,
+        `INSERT INTO sessions (terminal_id, session_id, description, registered_at, last_seen)
+         VALUES (@terminalId, @terminalId, @description, @now, @now)
+         ON CONFLICT(terminal_id) DO UPDATE SET last_seen = @now`,
       )
-      .run({ sessionId, description: PLACEHOLDER_DESCRIPTION, now: at });
+      .run({ terminalId, description: PLACEHOLDER_DESCRIPTION, now: at });
   }
 
-  /** Update the calling session's description and `last_seen`. Upserts if not signed in yet. */
-  setDescription(
-    input: z.infer<typeof updateSessionSchema>,
+  /** The live session_id currently at a terminal, or undefined when the terminal isn't in the roster. */
+  private sessionIdAt(terminalId: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT session_id FROM sessions WHERE terminal_id = @terminalId`,
+      )
+      .get({ terminalId }) as Pick<Session, "session_id"> | undefined;
+    return row?.session_id;
+  }
+
+  /** Delete every message queued for a session id. */
+  private purgeInbox(sessionId: string): void {
+    this.db
+      .prepare(`DELETE FROM messages WHERE recipient_id = @sessionId`)
+      .run({ sessionId });
+  }
+
+  /** The live session_id currently at a terminal, or the terminal id itself when it isn't in the roster yet. */
+  resolveSession(terminalId: string): string {
+    return this.sessionIdAt(terminalId) ?? terminalId;
+  }
+
+  /** Point a terminal at its live session; on a session change, reset it to start clean and clear the old inbox. */
+  setSession(
+    terminalId: string,
     sessionId: string,
     now: number = Date.now(),
   ): void {
+    const previous = this.sessionIdAt(terminalId);
     const at = new Date(now).toISOString();
     this.db
       .prepare(
-        `INSERT INTO sessions (session_id, description, registered_at, last_seen)
-         VALUES (@sessionId, @description, @now, @now)
-         ON CONFLICT(session_id) DO UPDATE SET
-           description = @description, last_seen = @now`,
-      )
-      .run({ sessionId, description: input.description, now: at });
-  }
-
-  /** Mark the calling session busy or idle and bump `last_seen`. Upserts if not signed in yet. */
-  setStatus(
-    input: z.infer<typeof setStatusSchema>,
-    sessionId: string,
-    now: number = Date.now(),
-  ): void {
-    const at = new Date(now).toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO sessions (session_id, description, registered_at, last_seen, status)
-         VALUES (@sessionId, @description, @now, @now, @status)
-         ON CONFLICT(session_id) DO UPDATE SET status = @status, last_seen = @now`,
+        `INSERT INTO sessions (terminal_id, session_id, description, registered_at, last_seen, status)
+         VALUES (@terminalId, @sessionId, @description, @now, @now, 'idle')
+         ON CONFLICT(terminal_id) DO UPDATE SET
+           last_seen     = @now,
+           session_id    = excluded.session_id,
+           description   = CASE WHEN session_id = excluded.session_id THEN description   ELSE excluded.description   END,
+           registered_at = CASE WHEN session_id = excluded.session_id THEN registered_at ELSE excluded.registered_at END,
+           status        = CASE WHEN session_id = excluded.session_id THEN status        ELSE 'idle'                 END`,
       )
       .run({
+        terminalId,
         sessionId,
+        description: PLACEHOLDER_DESCRIPTION,
+        now: at,
+      });
+    if (previous && previous !== sessionId) this.purgeInbox(previous);
+  }
+
+  /** Set the terminal's description and bump `last_seen`. Upserts a placeholder row if the terminal is new. */
+  setDescription(
+    input: z.infer<typeof updateSessionSchema>,
+    terminalId: string,
+    now: number = Date.now(),
+  ): void {
+    const at = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO sessions (terminal_id, session_id, description, registered_at, last_seen)
+         VALUES (@terminalId, @terminalId, @description, @now, @now)
+         ON CONFLICT(terminal_id) DO UPDATE SET
+           description = @description, last_seen = @now`,
+      )
+      .run({ terminalId, description: input.description, now: at });
+  }
+
+  /** Mark the terminal busy or idle and bump `last_seen`. Upserts a placeholder row if the terminal is new. */
+  setStatus(
+    input: z.infer<typeof setStatusSchema>,
+    terminalId: string,
+    now: number = Date.now(),
+  ): void {
+    const at = new Date(now).toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO sessions (terminal_id, session_id, description, registered_at, last_seen, status)
+         VALUES (@terminalId, @terminalId, @description, @now, @now, @status)
+         ON CONFLICT(terminal_id) DO UPDATE SET status = @status, last_seen = @now`,
+      )
+      .run({
+        terminalId,
         description: PLACEHOLDER_DESCRIPTION,
         now: at,
         status: input.status,
       });
   }
 
-  /** The live sessions — seen within the cutoff — most recently seen first. Stale rows are hidden. */
+  /** The live sessions, most recently seen first; stale rows are hidden. */
   listSessions(now: number = Date.now()) {
     const cutoff = new Date(now - STALE_AFTER_MS).toISOString();
     const rows = this.db
@@ -154,14 +206,13 @@ export class Hermes {
     };
   }
 
-  /** Remove the calling session and its inbox. Unknown id is a no-op. */
-  deregister(sessionId: string): void {
+  /** Remove a terminal and its session's inbox. Unknown terminal is a no-op. */
+  deregister(terminalId: string): void {
+    const sessionId = this.sessionIdAt(terminalId);
     this.db
-      .prepare(`DELETE FROM sessions WHERE session_id = @sessionId`)
-      .run({ sessionId });
-    this.db
-      .prepare(`DELETE FROM messages WHERE recipient_id = @sessionId`)
-      .run({ sessionId });
+      .prepare(`DELETE FROM sessions WHERE terminal_id = @terminalId`)
+      .run({ terminalId });
+    if (sessionId) this.purgeInbox(sessionId);
   }
 
   /** Send the message to the named live session. Returns 1 if delivered, 0 if that session isn't live. */
@@ -241,11 +292,11 @@ export class Hermes {
     }));
   }
 
-  /** The session with this id, or undefined if none is present. */
+  /** The roster row for this session id, or undefined if none is present. */
   getSession(sessionId: string): Session | undefined {
     return this.db
       .prepare(
-        `SELECT session_id, description, registered_at, last_seen, status
+        `SELECT terminal_id, session_id, description, registered_at, last_seen, status
            FROM sessions WHERE session_id = @sessionId`,
       )
       .get({ sessionId }) as Session | undefined;

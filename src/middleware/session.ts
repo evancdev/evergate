@@ -1,10 +1,21 @@
 import type { RequestHandler } from "express";
-import { getSessionId } from "@/lib";
+import { services } from "@/services/index";
+import { requireTerminalId } from "@/lib";
 
-/** Resolve the caller's session id from X-Hermes-Agent onto `req.sessionId`; rejects if absent. */
-export const requireSession: RequestHandler = (req, _res, next) => {
+/** Attach the caller's terminal id to the request; rejects a caller that sends none. */
+export const attachTerminalId: RequestHandler = (req, _res, next) => {
   try {
-    req.sessionId = getSessionId(req.headers);
+    req.terminalId = requireTerminalId(req.headers);
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Resolve the caller's live session id onto the request. Runs after attachTerminalId. */
+export const requireSessionId: RequestHandler = (req, _res, next) => {
+  try {
+    req.sessionId = services.hermes.resolveSession(req.terminalId);
     next();
   } catch (err) {
     next(err);

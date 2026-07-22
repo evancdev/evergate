@@ -7,7 +7,7 @@ import { registerTools } from "@/tools/index";
 /** Handle one request: a fresh server + transport per call */
 const handlePost = async (req: Request, res: Response) => {
   const server = new McpServer({ name: "evergate", version: "0.0.0" });
-  registerTools(server);
+  registerTools(server, req.headers);
   const transport = new StreamableHTTPServerTransport({
     // Stateless. Set a generator only if the server has to push to the client
     sessionIdGenerator: undefined,

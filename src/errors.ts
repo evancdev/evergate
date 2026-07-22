@@ -1,6 +1,6 @@
 import neo4j from "neo4j-driver";
 
-/** The X-Hermes-Agent header was absent or blank, so the caller can't be identified. */
+/** The X-Hermes-Terminal header was absent or blank, so the caller can't be identified. */
 export class MissingIdentityError extends Error {}
 
 /** True if the statement must run in an implicit transaction. */
