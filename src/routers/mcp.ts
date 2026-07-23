@@ -11,6 +11,8 @@ const handlePost = async (req: Request, res: Response) => {
   const transport = new StreamableHTTPServerTransport({
     // Stateless. Set a generator only if the server has to push to the client
     sessionIdGenerator: undefined,
+    // Reply with plain JSON
+    enableJsonResponse: true,
     // Defense-in-depth against DNS rebinding (CVE-2025-66414)
     enableDnsRebindingProtection: true,
     allowedHosts: env.allowedHosts,

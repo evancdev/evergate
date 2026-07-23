@@ -2,6 +2,10 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import { rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { createServer as createUnixServer } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -9,18 +13,24 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const CONNECTOR = fileURLToPath(new URL("./index.mjs", import.meta.url));
 
-// A minimal stateless MCP endpoint exposing one `ping` tool; records the identity header seen
-// on /mcp and every /hermes/{register,deregister} call (as {path, id}).
+// Minimal MCP mock: serves `ping` always, `list_sessions` only with a terminal header; records terminal headers on /mcp and presence calls.
 function startMockServer() {
-  const seen = [];
-  const presence = [];
+  const seen = []; // x-hermes-terminal seen on each /mcp request
+  const presence = []; // {path, term} for each /hermes/{register,deregister}
+  const pull = []; // messages the idle-poller will drain, one batch per /hermes/pull
   const server = createServer(async (req, res) => {
-    const id = req.headers["x-hermes-agent"];
+    const term = req.headers["x-hermes-terminal"];
+    if (req.method === "POST" && req.url === "/hermes/pull") {
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ messages: pull.splice(0) }));
+      return;
+    }
     const hermes =
       req.method === "POST" &&
       /^\/hermes\/(register|deregister)$/.exec(req.url ?? "");
     if (hermes) {
-      presence.push({ path: hermes[1], id });
+      presence.push({ path: hermes[1], term });
       res.writeHead(204).end();
       return;
     }
@@ -28,15 +38,21 @@ function startMockServer() {
       res.writeHead(404).end();
       return;
     }
-    seen.push(id);
+    seen.push(term);
     let raw = "";
     for await (const chunk of req) raw += chunk;
     const mcp = new McpServer({ name: "mock", version: "0.0.0" });
     mcp.registerTool("ping", { description: "ping" }, () => ({
       content: [{ type: "text", text: "pong" }],
     }));
+    // Presence tool is wrapped-only: served only when the caller sent a terminal id.
+    if (term)
+      mcp.registerTool("list_sessions", { description: "presence" }, () => ({
+        content: [{ type: "text", text: "[]" }],
+      }));
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
+      enableJsonResponse: true,
     });
     res.on("close", () => {
       void transport.close();
@@ -52,16 +68,19 @@ function startMockServer() {
         url: `http://127.0.0.1:${port}`,
         seen,
         presence,
+        pull,
         close: () => server.close(),
       });
     });
   });
 }
 
-// Spawn the connector as Claude would, with the given env, and return a connected MCP client.
-// An override set to `undefined` removes that variable from the child's environment.
+// Spawn the connector as Claude would and return a connected MCP client; an env override of `undefined` unsets that variable.
 async function connect(env) {
   const merged = { ...process.env, ...env };
+  // Strip inherited identity/inject vars so a wrapped dev session doesn't skew tests; each test sets its own.
+  for (const key of ["HERMES_INJECT_SOCK", "HERMES_TERMINAL_ID"])
+    if (!(key in env)) delete merged[key];
   for (const key of Object.keys(env))
     if (env[key] === undefined) delete merged[key];
   const transport = new StdioClientTransport({
@@ -81,68 +100,6 @@ before(async () => {
 });
 after(() => mock.close());
 
-test("bridges JSON-RPC: tools list and call round-trip through the connector", async () => {
-  const client = await connect({
-    EVERGATE_URL: mock.url,
-    CLAUDE_CODE_SESSION_ID: "sess-1",
-  });
-  try {
-    const { tools } = await client.listTools();
-    assert.deepEqual(
-      tools.map((t) => t.name),
-      ["ping"],
-    );
-    const result = await client.callTool({ name: "ping" });
-    assert.equal(result.content[0].text, "pong");
-  } finally {
-    await client.close();
-  }
-});
-
-test("stamps X-Hermes-Agent from CLAUDE_CODE_SESSION_ID on every request", async () => {
-  const before = mock.seen.length;
-  const client = await connect({
-    EVERGATE_URL: mock.url,
-    CLAUDE_CODE_SESSION_ID: "sess-2",
-  });
-  try {
-    await client.listTools();
-  } finally {
-    await client.close();
-  }
-  const seen = mock.seen.slice(before);
-  assert.ok(seen.length > 0, "server received at least one request");
-  assert.ok(
-    seen.every((h) => h === "sess-2"),
-    `all requests carry the id, got ${seen}`,
-  );
-});
-
-test("falls back to a stable generated id when CLAUDE_CODE_SESSION_ID is unset", async () => {
-  const before = mock.seen.length;
-  const client = await connect({
-    EVERGATE_URL: mock.url,
-    CLAUDE_CODE_SESSION_ID: undefined,
-  });
-  try {
-    await client.listTools();
-    await client.callTool({ name: "ping" });
-  } finally {
-    await client.close();
-  }
-  const seen = mock.seen.slice(before);
-  assert.ok(seen.length > 1, "server received multiple requests");
-  assert.ok(
-    seen.every((h) => typeof h === "string" && h.length > 0),
-    "a non-empty id is stamped",
-  );
-  assert.equal(
-    new Set(seen).size,
-    1,
-    `the same id is reused across requests, got ${[...new Set(seen)]}`,
-  );
-});
-
 // Poll until `predicate` holds or the deadline passes; returns the predicate's truthy value.
 async function waitFor(predicate, timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
@@ -154,32 +111,120 @@ async function waitFor(predicate, timeoutMs = 3000) {
   }
 }
 
-test("registers the session on start and deregisters it on exit", async () => {
+test("bridges JSON-RPC: a tool call round-trips through the connector", async () => {
+  const client = await connect({ EVERGATE_URL: mock.url });
+  try {
+    const result = await client.callTool({ name: "ping" });
+    assert.equal(result.content[0].text, "pong");
+  } finally {
+    await client.close();
+  }
+});
+
+test("starts and serves the graph tools even without the wrapper", async () => {
+  // No HERMES_TERMINAL_ID: the connector must still come up (it no longer refuses) and bridge tools.
+  const client = await connect({ EVERGATE_URL: mock.url });
+  try {
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    assert.ok(names.includes("ping"), "graph/other tools are served unwrapped");
+  } finally {
+    await client.close();
+  }
+});
+
+test("hides the Hermes presence tools from tools/list when unwrapped", async () => {
+  const client = await connect({ EVERGATE_URL: mock.url });
+  try {
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    assert.ok(names.includes("ping"));
+    assert.ok(
+      !names.includes("list_sessions"),
+      "the server omits the presence tool when we send no terminal id",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("exposes the Hermes presence tools when wrapped", async () => {
   const client = await connect({
     EVERGATE_URL: mock.url,
-    CLAUDE_CODE_SESSION_ID: "sess-life",
+    HERMES_TERMINAL_ID: "term-tools",
+  });
+  try {
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    assert.ok(
+      names.includes("ping") && names.includes("list_sessions"),
+      "a wrapped session sees the presence tools",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("does not register presence when unwrapped", async () => {
+  const before = mock.presence.length;
+  const client = await connect({ EVERGATE_URL: mock.url });
+  try {
+    // Give it well past the point it would have registered had it been going to.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(
+      mock.presence.length,
+      before,
+      "an unwrapped session announces no presence",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("registers on start and deregisters on exit, keyed by the terminal id", async () => {
+  const client = await connect({
+    EVERGATE_URL: mock.url,
+    HERMES_TERMINAL_ID: "term-life",
   });
   const registered = await waitFor(() =>
-    mock.presence.find((p) => p.path === "register" && p.id === "sess-life"),
+    mock.presence.find((p) => p.path === "register" && p.term === "term-life"),
   );
-  assert.ok(registered, "server saw a register for the session on start");
+  assert.ok(registered, "server saw a register keyed by the terminal on start");
 
   await client.close();
   const deregistered = await waitFor(() =>
-    mock.presence.find((p) => p.path === "deregister" && p.id === "sess-life"),
+    mock.presence.find(
+      (p) => p.path === "deregister" && p.term === "term-life",
+    ),
   );
-  assert.ok(deregistered, "server saw a deregister for the session on exit");
+  assert.ok(deregistered, "server saw a deregister for the terminal on exit");
+});
+
+test("stamps the stable X-Hermes-Terminal header on server calls when wrapped", async () => {
+  const before = mock.seen.length;
+  const client = await connect({
+    EVERGATE_URL: mock.url,
+    HERMES_TERMINAL_ID: "terminal-xyz",
+  });
+  try {
+    await client.listTools();
+  } finally {
+    await client.close();
+  }
+  const seen = mock.seen.slice(before);
+  assert.ok(seen.length > 0, "server received at least one request");
+  assert.ok(
+    seen.every((t) => t === "terminal-xyz"),
+    `every request carries the terminal id, got ${seen}`,
+  );
 });
 
 test("heartbeats register on an interval so the session stays fresh", async () => {
   const before = mock.presence.filter((p) => p.path === "register").length;
   const client = await connect({
     EVERGATE_URL: mock.url,
-    CLAUDE_CODE_SESSION_ID: "sess-beat",
+    HERMES_TERMINAL_ID: "term-beat",
     EVERGATE_HEARTBEAT_MS: "120",
   });
   const count = () =>
-    mock.presence.filter((p) => p.path === "register" && p.id === "sess-beat")
+    mock.presence.filter((p) => p.path === "register" && p.term === "term-beat")
       .length;
   try {
     // Initial register plus at least two heartbeats within a short window.
@@ -203,14 +248,14 @@ function unusedUrl() {
 }
 
 test("answers with an error instead of hanging when the server is unreachable", async () => {
+  const env = { ...process.env, EVERGATE_URL: await unusedUrl() };
+  // Same hermetic strip as connect(): don't let a wrapped dev session spawn a real delivery loop here.
+  delete env.HERMES_INJECT_SOCK;
+  delete env.HERMES_TERMINAL_ID;
   const transport = new StdioClientTransport({
     command: "node",
     args: [CONNECTOR],
-    env: {
-      ...process.env,
-      EVERGATE_URL: await unusedUrl(),
-      CLAUDE_CODE_SESSION_ID: "sess-dead",
-    },
+    env,
     stderr: "ignore",
   });
   const client = new Client({ name: "test", version: "0.0.0" });
@@ -220,4 +265,67 @@ test("answers with an error instead of hanging when the server is unreachable", 
     "initialize is answered with a connector error rather than left to time out",
   );
   await client.close().catch(() => {});
+});
+
+test("polls its inbox and injects waiting messages into the launcher socket while idle", async () => {
+  const sockPath = join(
+    tmpdir(),
+    "evergate",
+    `inject-test-${process.pid}.sock`,
+  );
+  mkdirSync(dirname(sockPath), { recursive: true });
+  rmSync(sockPath, { force: true });
+  const received = [];
+  const injectServer = createUnixServer((conn) => {
+    let buf = "";
+    conn.setEncoding("utf8");
+    conn.on("data", (d) => (buf += d));
+    conn.on("end", () => received.push(buf));
+  });
+  await new Promise((r) => injectServer.listen(sockPath, r));
+  mock.pull.push({ from: "alice", message: "wake up", at: "just now" });
+
+  const client = await connect({
+    EVERGATE_URL: mock.url,
+    HERMES_TERMINAL_ID: "term-idle",
+    HERMES_INJECT_SOCK: sockPath,
+    EVERGATE_POLL_MS: "80",
+  });
+  try {
+    const got = await waitFor(
+      () => received.find((r) => r.includes("wake up")),
+      3000,
+    );
+    assert.ok(got, "the launcher socket received the injected message");
+    assert.match(got, /alice.*wake up/);
+    assert.ok(
+      got.endsWith("\n"),
+      "payload is newline-terminated for the launcher",
+    );
+  } finally {
+    await client.close();
+    injectServer.close();
+    rmSync(sockPath, { force: true });
+  }
+});
+
+test("does not poll for delivery when no launcher socket is present", async () => {
+  mock.pull.push({ from: "alice", message: "should not be pulled", at: "now" });
+  const client = await connect({
+    EVERGATE_URL: mock.url,
+    HERMES_TERMINAL_ID: "term-nosock",
+    EVERGATE_POLL_MS: "80",
+  });
+  try {
+    // Give it time to have polled had it been going to; the queued message must remain undrained.
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(
+      mock.pull.length,
+      1,
+      "inbox was never polled without a socket",
+    );
+  } finally {
+    mock.pull.splice(0);
+    await client.close();
+  }
 });
