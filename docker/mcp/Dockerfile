@@ -1,4 +1,4 @@
-# Mimir MCP server
+# Evergate MCP server
 FROM node:22-slim
 WORKDIR /app
 

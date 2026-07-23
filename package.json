@@ -1,5 +1,5 @@
 {
-  "name": "mimir",
+  "name": "evergate",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm run typecheck:connector",
+    "typecheck:connector": "tsc -p claude/connector/tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "pnpm run test:unit && pnpm run test:integration",
@@ -19,21 +20,24 @@
     "format:check": "prettier --check .",
     "docker:up": "docker compose --env-file .env -f docker/compose.yml up -d --build",
     "docker:down": "docker compose --env-file .env -f docker/compose.yml down",
-    "docker:logs": "docker compose --env-file .env -f docker/compose.yml logs -f"
+    "logs": "docker compose --env-file .env -f docker/compose.yml logs -f",
+    "logs:mcp": "docker compose --env-file .env -f docker/compose.yml logs -f --tail=100 mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "morgan": "^1.11.0",
     "neo4j-driver": "^6.1.0",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@testcontainers/neo4j": "^12.0.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.6.0",

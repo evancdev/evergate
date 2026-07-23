@@ -1,6 +1,27 @@
+import type { IsomorphicHeaders } from "@modelcontextprotocol/sdk/types.js";
+import { MissingIdentityError } from "@/errors";
+
 /** Trim and lowercase text; blank or absent yields null. */
 export function normalizeText(text: string | undefined): string | null {
   return (text ?? "").trim().toLowerCase() || null;
+}
+
+/** The caller's terminal id from X-Hermes-Terminal, trimmed, or undefined if absent or blank. */
+export function parseTerminalId(
+  headers: IsomorphicHeaders | undefined,
+): string | undefined {
+  const raw = headers?.["x-hermes-terminal"];
+  return (Array.isArray(raw) ? raw[0] : raw)?.trim() || undefined;
+}
+
+/** The caller's terminal id from X-Hermes-Terminal. Throws if absent or blank. */
+export function requireTerminalId(
+  headers: IsomorphicHeaders | undefined,
+): string {
+  const value = parseTerminalId(headers);
+  if (!value)
+    throw new MissingIdentityError("Missing X-Hermes-Terminal header");
+  return value;
 }
 
 /** Format an ISO timestamp as a relative note of how long ago it was; null if missing, malformed, or in the future. */

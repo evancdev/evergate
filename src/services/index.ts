@@ -1,7 +1,7 @@
-import { env } from "../env.js";
-import { logger } from "../logger.js";
-import { Hermes } from "./hermes.js";
-import { Neo4jService } from "./neo4j.js";
+import { env } from "@/env";
+import { logger } from "@/logger";
+import { Hermes } from "@/services/hermes";
+import { Neo4jService } from "@/services/neo4j";
 
 /** Owns every long-lived service. Built once at startup; create() throws if any fail. */
 export class Services {

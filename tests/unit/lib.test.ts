@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { normalizeText, relativeTime } from "../../src/lib.js";
+import {
+  normalizeText,
+  parseTerminalId,
+  relativeTime,
+  requireTerminalId,
+} from "@/lib";
+import { MissingIdentityError } from "@/errors";
 
 const NOW = Date.parse("2026-06-30T12:00:00.000Z");
 const SEC = 1000;
@@ -60,5 +66,62 @@ describe("normalizeText", () => {
   it("yields null for blank or absent input", () => {
     expect(normalizeText("   ")).toBeNull();
     expect(normalizeText(undefined)).toBeNull();
+  });
+});
+
+describe("requireTerminalId", () => {
+  it("returns the X-Hermes-Terminal header value", () => {
+    expect(requireTerminalId({ "x-hermes-terminal": "term-a" })).toBe("term-a");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(requireTerminalId({ "x-hermes-terminal": "  term-a  " })).toBe(
+      "term-a",
+    );
+  });
+
+  it("uses the first value when the header arrives as an array", () => {
+    expect(
+      requireTerminalId({ "x-hermes-terminal": ["term-a", "term-b"] }),
+    ).toBe("term-a");
+  });
+
+  it("throws when the header is absent", () => {
+    expect(() => requireTerminalId({})).toThrow(MissingIdentityError);
+    expect(() => requireTerminalId(undefined)).toThrow(MissingIdentityError);
+  });
+
+  it("throws when the header is blank", () => {
+    expect(() => requireTerminalId({ "x-hermes-terminal": "   " })).toThrow(
+      MissingIdentityError,
+    );
+  });
+
+  it("throws when the first array value is blank, ignoring later values", () => {
+    expect(() =>
+      requireTerminalId({ "x-hermes-terminal": ["   ", "term-b"] }),
+    ).toThrow(MissingIdentityError);
+  });
+
+  it("throws when the header array is empty", () => {
+    expect(() => requireTerminalId({ "x-hermes-terminal": [] })).toThrow(
+      MissingIdentityError,
+    );
+  });
+});
+
+describe("parseTerminalId", () => {
+  it("returns the trimmed terminal id when present", () => {
+    expect(parseTerminalId({ "x-hermes-terminal": "  term-a  " })).toBe(
+      "term-a",
+    );
+    expect(parseTerminalId({ "x-hermes-terminal": ["term-a"] })).toBe("term-a");
+  });
+
+  it("returns undefined when the header is absent, blank, or an empty array", () => {
+    expect(parseTerminalId({})).toBeUndefined();
+    expect(parseTerminalId(undefined)).toBeUndefined();
+    expect(parseTerminalId({ "x-hermes-terminal": "   " })).toBeUndefined();
+    expect(parseTerminalId({ "x-hermes-terminal": [] })).toBeUndefined();
   });
 });

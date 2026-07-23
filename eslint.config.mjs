@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
-  { ignores: ["node_modules", "dist"] },
+  { ignores: ["node_modules", "dist", "coverage", "claude"] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -15,6 +15,16 @@ export default tseslint.config(
         },
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
   },
   // Prettier owns formatting; turn off any stylistic rules that would conflict.

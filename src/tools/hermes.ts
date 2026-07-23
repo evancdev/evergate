@@ -1,27 +1,34 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { services } from "../services/index.js";
+import { services } from "@/services/index";
 import {
-  registerSessionSchema,
+  updateSessionSchema,
+  sendMessageSchema,
   listSessionsOutputSchema,
-} from "../schemas/hermes.js";
-import { logger } from "../logger.js";
-import { FAILURE_RESPONSE, formatStructured, formatText } from "./shared.js";
+} from "@/schemas/hermes";
+import { logger } from "@/logger";
+import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
 
-/** Attach the Hermes agent-to-agent messaging tools to the MCP server. */
-export function registerHermesTools(server: McpServer): void {
+/** Attach the Hermes messaging tools, bound to the caller's terminal. */
+export function registerHermesTools(
+  server: McpServer,
+  terminalId: string,
+): void {
+  /** The caller's live session id, resolved when a tool actually needs it. */
+  const mySessionId = () => services.hermes.resolveSession(terminalId);
+
   server.registerTool(
-    "register_session",
+    "update_session",
     {
-      description: `Adds your session to the registry. Use when starting a session or updating your work description.`,
-      inputSchema: registerSessionSchema,
+      description: `Update your session's work description. Use this when your focus shifts to a different task or area of work — not for small steps within the same task.`,
+      inputSchema: updateSessionSchema,
     },
-    (input, extra): CallToolResult => {
+    (input): CallToolResult => {
       try {
-        services.hermes.registerSession(input, extra.requestInfo?.headers);
-        return formatText("registered");
+        services.hermes.setDescription(input, terminalId);
+        return formatText("description updated");
       } catch (err) {
-        logger.error("register_session failed", err, input);
+        logger.error("update_session failed", err, input);
         return FAILURE_RESPONSE;
       }
     },
@@ -31,14 +38,37 @@ export function registerHermesTools(server: McpServer): void {
     "list_sessions",
     {
       description:
-        "Lists the Claude sessions in the registry and what each is working on.",
+        "Lists the Claude sessions in the registry, what each is working on, and any messages waiting for you.",
       outputSchema: listSessionsOutputSchema,
     },
     (): CallToolResult => {
       try {
-        return formatStructured(services.hermes.listSessions());
+        const { sessions } = services.hermes.listSessions();
+        const { messages } = services.hermes.peekMessages(mySessionId());
+        return formatStructured({ sessions, messages });
       } catch (err) {
         logger.error("list_sessions failed", err);
+        return FAILURE_RESPONSE;
+      }
+    },
+  );
+
+  server.registerTool(
+    "send_message",
+    {
+      description: "Send a message to another live session.",
+      inputSchema: sendMessageSchema,
+    },
+    (input): CallToolResult => {
+      try {
+        const { delivered } = services.hermes.sendMessage(input, mySessionId());
+        return formatText(
+          delivered > 0
+            ? "delivered"
+            : "no live session with that id — nothing delivered",
+        );
+      } catch (err) {
+        logger.error("send_message failed", err, input);
         return FAILURE_RESPONSE;
       }
     },

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "evergate": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/connector/index.mjs"],
+      "env": {
+        "EVERGATE_URL": "http://localhost:8765"
+      }
+    }
+  }
+}

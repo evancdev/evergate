@@ -1,14 +1,14 @@
 import { z } from "zod";
 import neo4j, { type Driver } from "neo4j-driver";
-import { needsImplicitTx } from "../errors.js";
-import { normalizeText, relativeTime } from "../lib.js";
+import { needsImplicitTx } from "@/errors";
+import { normalizeText, relativeTime } from "@/lib";
 import {
   entitySchema,
   listSchema,
   searchSchema,
   upsertSchema,
-} from "../schemas/neo4j.js";
-import { type Neo4jConfig } from "../types/configs.js";
+} from "@/schemas/neo4j";
+import { type Neo4jConfig } from "@/types/configs";
 
 export class Neo4jService {
   private constructor(private readonly driver: Driver) {}

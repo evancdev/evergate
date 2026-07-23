@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  FAILURE_RESPONSE,
-  formatStructured,
-  formatText,
-} from "../../src/tools/shared.js";
+import { FAILURE_RESPONSE, formatStructured, formatText } from "@/tools/shared";
 
 describe("formatText", () => {
   it("wraps its argument as a single text content block", () => {

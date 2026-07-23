@@ -1,14 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
+import { upsertSchema, searchSchema, listSchema } from "@/schemas/neo4j";
 import {
-  upsertSchema,
-  searchSchema,
-  listSchema,
-} from "../../src/schemas/neo4j.js";
-import {
-  registerSessionSchema,
+  updateSessionSchema,
+  setStatusSchema,
+  setSessionSchema,
   listSessionsOutputSchema,
-} from "../../src/schemas/hermes.js";
+} from "@/schemas/hermes";
 
 describe("upsertSchema", () => {
   it("accepts a name on its own (type and summary are optional)", () => {
@@ -59,43 +57,72 @@ describe("searchSchema", () => {
   });
 });
 
-describe("registerSessionSchema", () => {
+describe("updateSessionSchema", () => {
   it("accepts a non-empty description", () => {
     expect(
-      registerSessionSchema.safeParse({ description: "building the api" })
+      updateSessionSchema.safeParse({ description: "building the api" })
         .success,
     ).toBe(true);
   });
 
   it("rejects a missing description", () => {
-    expect(registerSessionSchema.safeParse({}).success).toBe(false);
+    expect(updateSessionSchema.safeParse({}).success).toBe(false);
   });
 
   it("rejects a non-string description", () => {
-    expect(registerSessionSchema.safeParse({ description: 123 }).success).toBe(
+    expect(updateSessionSchema.safeParse({ description: 123 }).success).toBe(
       false,
     );
   });
 
   it("rejects an empty or whitespace-only description", () => {
-    expect(registerSessionSchema.safeParse({ description: "" }).success).toBe(
+    expect(updateSessionSchema.safeParse({ description: "" }).success).toBe(
       false,
     );
-    expect(
-      registerSessionSchema.safeParse({ description: "   " }).success,
-    ).toBe(false);
+    expect(updateSessionSchema.safeParse({ description: "   " }).success).toBe(
+      false,
+    );
   });
 
   it("trims the stored description", () => {
-    expect(registerSessionSchema.parse({ description: "  hi  " })).toEqual({
+    expect(updateSessionSchema.parse({ description: "  hi  " })).toEqual({
       description: "hi",
     });
   });
 
   it("trims before the min-length check at the boundary", () => {
-    expect(registerSessionSchema.parse({ description: " a " })).toEqual({
+    expect(updateSessionSchema.parse({ description: " a " })).toEqual({
       description: "a",
     });
+  });
+});
+
+describe("setStatusSchema", () => {
+  it("accepts busy and idle", () => {
+    expect(setStatusSchema.safeParse({ status: "busy" }).success).toBe(true);
+    expect(setStatusSchema.safeParse({ status: "idle" }).success).toBe(true);
+  });
+
+  it("rejects any other status and a missing one", () => {
+    expect(setStatusSchema.safeParse({ status: "working" }).success).toBe(
+      false,
+    );
+    expect(setStatusSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("setSessionSchema", () => {
+  it("accepts a non-empty session_id and trims it", () => {
+    expect(setSessionSchema.parse({ session_id: "  sess-a  " })).toEqual({
+      session_id: "sess-a",
+    });
+  });
+
+  it("rejects a missing or empty session_id", () => {
+    expect(setSessionSchema.safeParse({}).success).toBe(false);
+    expect(setSessionSchema.safeParse({ session_id: "   " }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -106,24 +133,45 @@ describe("listSessionsOutputSchema", () => {
     expect(
       schema.safeParse({
         sessions: [
-          { session_id: "s1", description: "one", last_seen: "just now" },
+          {
+            session_id: "s1",
+            description: "one",
+            last_seen: "just now",
+            status: "idle",
+          },
         ],
+        messages: [{ from: "s2", message: "hi", at: "just now" }],
       }).success,
     ).toBe(true);
   });
 
-  it("accepts an empty sessions array", () => {
-    expect(schema.safeParse({ sessions: [] }).success).toBe(true);
+  it("accepts empty sessions and messages arrays", () => {
+    expect(schema.safeParse({ sessions: [], messages: [] }).success).toBe(true);
   });
 
   it("rejects a session missing a required field", () => {
     expect(
-      schema.safeParse({ sessions: [{ session_id: "s1", last_seen: "x" }] })
-        .success,
+      schema.safeParse({
+        sessions: [{ session_id: "s1", last_seen: "x" }],
+        messages: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a message missing a required field", () => {
+    expect(
+      schema.safeParse({
+        sessions: [],
+        messages: [{ from: "s2", message: "hi" }],
+      }).success,
     ).toBe(false);
   });
 
   it("rejects a missing sessions array", () => {
-    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ messages: [] }).success).toBe(false);
+  });
+
+  it("rejects a missing messages array", () => {
+    expect(schema.safeParse({ sessions: [] }).success).toBe(false);
   });
 });

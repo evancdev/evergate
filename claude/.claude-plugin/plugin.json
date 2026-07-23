@@ -1,0 +1,10 @@
+{
+  "name": "evergate",
+  "version": "0.1.0",
+  "description": "Local dev plugin for the Evergate MCP server.",
+  "author": {
+    "name": "Evan Chen",
+    "email": "evanctech@gmail.com"
+  },
+  "license": "MIT"
+}

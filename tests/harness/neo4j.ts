@@ -3,8 +3,8 @@ import {
   Neo4jContainer,
   type StartedNeo4jContainer,
 } from "@testcontainers/neo4j";
-import { Neo4jService } from "../../src/services/neo4j.js";
-import { type Neo4jConfig } from "../../src/types/configs.js";
+import { Neo4jService } from "@/services/neo4j";
+import { type Neo4jConfig } from "@/types/configs";
 
 /**
  * Test wrapper around Neo4jService: owns a throwaway container, the service under
